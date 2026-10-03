@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recall — local memory</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Recall</div>
+  <div class="topbar-sub">local memory · stays on this device</div>
+  <button id="theme-btn" class="btn btn-ghost" aria-label="Toggle theme">Theme</button>
+</header>
+<div class="layout">
+  <aside class="sidebar" aria-label="Library">
+    <nav class="nav">
+      <button class="nav-item is-active" data-filter="">All memories</button>
+      <button class="nav-item" data-filter="image">Images</button>
+      <button class="nav-item" data-filter="webpage">Web</button>
+      <button class="nav-item" data-filter="pdf">PDFs</button>
+      <button class="nav-item" data-filter="text">Files</button>
+    </nav>
+    <div class="sep"></div>
+    <div id="stats" class="stats" aria-live="polite">—</div>
+  </aside>
+  <main class="main">
+    <section class="search-wrap">
+      <label class="visually-hidden" for="q">Search your memory</label>
+      <input id="q" class="input input-lg" type="search"
+             placeholder="Search your memory…  e.g. github dns error, images from last week"
+             autocomplete="off">
+      <div class="filters">
+        <select id="f-type" class="input" aria-label="Type filter">
+          <option value="">All types</option>
+          <option value="image">Images</option>
+          <option value="webpage">Web</option>
+          <option value="pdf">PDFs</option>
+          <option value="text">Text</option>
+          <option value="markdown">Markdown</option>
+          <option value="file">Files</option>
+        </select>
+        <input id="f-source" class="input" placeholder="source e.g. github.com" aria-label="Source filter">
+        <button id="search-btn" class="btn btn-primary">Search</button>
+      </div>
+      <p class="hint">Try natural filters: <code>from github</code> · <code>images</code> · <code>last week</code></p>
+    </section>
+    <section id="results" class="grid" aria-live="polite"></section>
+    <div id="empty" class="empty">
+      <h2>No results yet</h2>
+      <p>Add memories via the API, then search by keyword, concept, source, or date.</p>
+      <pre><code>curl -X POST localhost:8000/api/memories \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"FAISS notes","content":"vector index for dense retrieval"}'</code></pre>
+    </div>
+  </main>
+</div>
+<dialog id="detail" class="dialog" aria-label="Memory detail">
+  <div id="detail-body"></div>
+  <form method="dialog"><button class="btn">Close</button></form>
+</dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>
