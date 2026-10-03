@@ -8,19 +8,20 @@
 ## Current System
 
 ```text
-Backend:      FastAPI + Python (Planned)
-Database:     SQLite + FTS5, WAL mode (Planned)
-Lexical:      SQLite FTS5 bm25(), k1=1.2 b=0.75 (Planned)
-Vector:       faiss-cpu, IndexIDMap2(IndexFlatIP) + L2-normalized vectors = cosine (Planned)
-Image caption: Salesforce/blip-image-captioning-base, fallback microsoft/git-base-coco,
-               optional microsoft/Florence-2-base-ft detailed mode (Planned — see §9)
-OCR:          rapidocr-onnxruntime + onnxruntime; pytesseract optional fallback (Planned)
-Text embed:   sentence-transformers/all-MiniLM-L6-v2 default (384d);
-              upgrade path BAAI/bge-small-en-v1.5 (Planned)
-Image-text:   Deferred; opt-in google/siglip-base-patch16-224 only if caption+OCR proves insufficient (Planned)
-Frontend:     HTML + CSS + vanilla JS + shadcn-html copied components, no build step (Planned)
-Inference:    Local CPU only (torch, no_grad/inference_mode, batch=1, safetensors) (Planned)
-Search:       No generative LLM/VLM at query time (Planned)
+Backend:      FastAPI + Python (Implemented, 14 tests passing)
+Database:     SQLite + FTS5, WAL mode (Implemented)
+Lexical:      SQLite FTS5 bm25(), k1=1.2 b=0.75 (Implemented)
+Vector:       faiss-cpu 1.15.1, IndexIDMap2(IndexFlatIP) + L2-normalized vectors = cosine (Implemented, Verified)
+Image caption: Interface isolated in backend/app/vision.py; BLIP-base default, Florence-2 opt-in
+               (Experimental — lazy-loads only when torch+transformers installed; returns "" offline)
+OCR:          Wrapper in backend/app/ocr.py; rapidocr-onnxruntime default, pytesseract fallback
+               (Experimental — returns "" when neither installed; blank-image path tested)
+Text embed:   all-MiniLM-L6-v2 via sentence-transformers when installed, else deterministic
+               hash fallback (Implemented — fallback Verified in tests; ST path needs model download)
+Image-text:   Deferred; opt-in siglip-base-patch16-224 (Planned)
+Frontend:     HTML + CSS + vanilla JS, shadcn-html-inspired tokens, no build step (Implemented)
+Inference:    Local CPU only (Implemented)
+Search:       No generative LLM/VLM at query time (Implemented, Verified — test_api_search_no_llm)
 ```
 
 ## 1. Project Overview
@@ -518,13 +519,31 @@ Status: Accepted (`Planned`). No React/Vue/build; copy kit components directly.
 
 ## 18. Problems Encountered
 
-(None yet — repo at research stage. Entries will be added as build proceeds;
-every load-bearing issue gets cause + fix + regression test.)
+1. **`article about X` hard-filtered to `type=webpage`, returning zero rows.**
+   Cause: NL type parser treated content words ("article") as hard `WHERE`
+   filters. Fix: NL type hints are now soft boosts (+0.10) only; hard filtering
+   applies solely to explicit API/sidebar `type_filter`. Regression tests:
+   `test_article_query_does_not_hard_filter_type`. Status: Fixed, Verified.
+2. **`from github` (bare name, no TLD) was not recognized as a source filter.**
+   Cause: regex required `name.tld`. Fix: fallback captures bare `from <word>`
+   as domain substring (`LIKE %github%`). Regression test:
+   `test_bare_source_filter`. Status: Fixed, Verified.
+3. **FastAPI `on_event` deprecation warning.** Fixed by moving to `lifespan`
+   handler. Status: Fixed.
+4. **No in-repo GPU/CPU model benchmarks yet.** Caption/OCR/ST paths are
+   lazy and untested with real weights; all latency figures remain
+   reported/estimated. Next: measure caption s/img, OCR s/img, RSS, p50/p95.
 
 ## 19. Solutions
 
-(Pending implementation. Pattern: smallest fix at the weakest measured link;
-re-measure; simplify what got complicated.)
+- Broad-retrieval-first query parsing: ambiguous NL hints boost, explicit
+  UI/API params filter. Documented in `backend/app/search.py`.
+- Offline-first degradation: embeddings fall back to deterministic hashed
+  vectors; FAISS falls back to numpy brute force; caption/OCR return "".
+  Core search (BM25 + fallback vectors + metadata) verified without any model
+  download — 14 pytest tests, plus smoke checks for "GitHub DNS error",
+  "article about vector databases", "images containing a terminal",
+  "things from github last week".
 
 ## 20. Things Learned
 
