@@ -1,0 +1,41 @@
+[project]
+name = "recall"
+version = "0.1.0"
+description = "Recall — local-first multimodal personal memory and retrieval"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "numpy>=1.26",
+  "pillow>=10.0",
+  "faiss-cpu>=1.8",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+ai = [
+  "torch",
+  "transformers>=4.40",
+  "safetensors>=0.4",
+  "sentence-transformers>=2.6",
+]
+ocr = [
+  "rapidocr-onnxruntime>=1.3",
+  "onnxruntime>=1.17",
+]
+pdf = [
+  "pypdf>=4.0",
+]
+test = [
+  "pytest>=8.0",
+  "httpx>=0.27",
+  "ImageHash>=4.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
