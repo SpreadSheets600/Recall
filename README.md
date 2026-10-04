@@ -1,9 +1,9 @@
 # Recall
 
-![Recall — local-first multimodal personal memory](docs/banner.png)
+![Recall - local-first multimodal personal memory](docs/banner.png)
 
 Local-first multimodal personal memory and retrieval. Save webpages, images,
-screenshots, PDFs, and notes — find them later with hybrid lexical + semantic
+screenshots, PDFs, and notes - find them later with hybrid lexical + semantic
 search. No cloud, no accounts, no LLM at query time.
 
 > Think at ingest. Retrieve deterministically.
@@ -25,7 +25,7 @@ Open `http://localhost:8000`.
 > EmbeddingGemma downloads are gated: accept the Gemma terms at
 > `huggingface.co/google/embeddinggemma-300m` and `export HF_TOKEN=…`
 > before first run if you want the top-quality embeddings. Without it Recall
-> falls back to MiniLM, then to offline hash vectors — search keeps working.
+> falls back to MiniLM, then to offline hash vectors - search keeps working.
 
 ```bash
 # single file
@@ -43,21 +43,12 @@ curl -X POST localhost:8000/api/ingest \
 ## Architecture
 
 AI runs once at ingest; search is deterministic (SQLite + BM25 + FAISS).
-The database is authoritative — FAISS is an in-RAM cache rebuilt from SQLite.
+The database is authoritative - FAISS is an in-RAM cache rebuilt from SQLite.
 
-```mermaid
-flowchart TB
-    C["Capture\nupload · note · path · extension"] --> I["Ingest (AI runs once)\nextract → caption + OCR + tags → embed"]
-    I --> DB[("SQLite + FTS5\nsource of truth")]
-    I --> VX["FAISS cosine\nrebuilt from SQLite"]
-    Q["Query"] --> F["Fuse: 0.7 * weighted scores + 0.3 * RRF\n+ relevance bonuses, tiny tie-breakers"]
-    DB --> F
-    VX --> F
-    F --> R["Ranked results\nscore + match reasons"]
-```
+![alt text](docs/architecture.png)
 
 AI runs once at ingest; search is deterministic (SQLite + BM25 + FAISS).
-The database is authoritative — FAISS is an in-RAM cache rebuilt from SQLite.
+The database is authoritative - FAISS is an in-RAM cache rebuilt from SQLite.
 Ranking mixes calibrated BM25/dense scores (`w_bm25` / `w_dense` settings)
 with an RRF term; only relevance signals get large bonuses, so engagement
 stats can never outvote a better match.
@@ -65,13 +56,13 @@ See `docs/KNOWLEDGE.md` for decisions, tradeoffs, and licenses.
 
 ## Features
 
-- **Dashboard** — stats, quick capture, recent memories.
-- **Search Studio** — hybrid search with type, website-category, dwell-time,
+- **Dashboard** - stats, quick capture, recent memories.
+- **Search Studio** - hybrid search with type, website-category, dwell-time,
   and date filters, plus match-reason chips per result.
-- **Memory Library** — filter, inspect, batch-delete, JSON export/import.
-- **Knowledge graph** — term/memory/domain web of your collection.
-- **Models & AI** — backend status, live benchmark, embedding playground.
-- **Browser extension** (`extension/`) — explicit per-click web clips with
+- **Memory Library** - filter, inspect, batch-delete, JSON export/import.
+- **Knowledge graph** - term/memory/domain web of your collection.
+- **Models & AI** - backend status, live benchmark, embedding playground.
+- **Browser extension** (`extension/`) - explicit per-click web clips with
   dwell-time tracking; re-captures update instead of duplicating.
 
 ## API
@@ -99,7 +90,7 @@ GET  /api/graph
 ```
 
 Without AI extras, embeddings use a deterministic offline fallback and
-caption/OCR return empty strings — search (BM25 + fallback vectors +
+caption/OCR return empty strings - search (BM25 + fallback vectors +
 metadata) still works.
 
 ## Frontend dev (React + BoardUI)
@@ -112,5 +103,5 @@ Free BoardUI components live as source under `frontend/components/`
 (`button`, `input`, `textarea`, `file-upload`, `tabs`, `badge`, `chip`,
 `sidebar`, `stat-cards`, `table`, `settings-modal`, `theme-toggle`,
 `dropdown`, `tooltip`, `divider`, `select`). Pro components require a paid
-license — do not add them. Production build (`npm run build` → `frontend/dist/`)
+license - do not add them. Production build (`npm run build` → `frontend/dist/`)
 is served by FastAPI.
