@@ -16,9 +16,9 @@ dependencies = [
 [project.optional-dependencies]
 ai = [
   "torch",
-  "transformers>=4.40",
+  "transformers>=4.50",
   "safetensors>=0.4",
-  "sentence-transformers>=2.6",
+  "sentence-transformers>=5.1",
 ]
 ocr = [
   "rapidocr-onnxruntime>=1.3",

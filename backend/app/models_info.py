@@ -7,6 +7,7 @@ def _available(module: str):
 
 def models_status():
     from . import config
+    from . import embeddings as emb
 
     embed_lib = _available("sentence_transformers")
     torch_ok = _available("torch")
@@ -30,16 +31,29 @@ def models_status():
     except Exception:
         sqlite_v = "?"
 
+    gemma = "embeddinggemma" in config.EMBED_MODEL.lower()
+    active = emb.backend_status()
+    if gemma and not embed_lib:
+        embed_note = ("sentence-transformers not installed — hash fallback active. "
+                      "Install with: ./script.sh --extras all")
+    elif gemma and active in ("unloaded", "hash-fallback", "minilm"):
+        embed_note = ("If downloads fail with 401: accept the Gemma terms at "
+                      "huggingface.co/google/embeddinggemma-300m and set HF_TOKEN. "
+                      "MiniLM/hash fallback keeps search working meanwhile.")
+    else:
+        embed_note = ("Paraphrase/concept match. Works offline after first download; "
+                      "hash fallback keeps search working without it.")
+
     return {
         "embed": {
             "name": config.EMBED_MODEL,
             "dim": config.EMBED_DIM,
+            "active_backend": active,
             "library": "sentence-transformers" if embed_lib else "missing (hash fallback active)",
-            "ready": bool(embed_lib and torch_ok),
-            "size": "~80-90MB",
-            "license": "Apache-2.0",
-            "note": "Paraphrase/concept match. Works offline after first download; "
-                    "hash fallback keeps search working without it.",
+            "ready": bool(embed_lib),
+            "size": "~600MB fp32" if gemma else "~80-90MB",
+            "license": "Gemma Terms of Use (gated)" if gemma else "Apache-2.0",
+            "note": embed_note,
         },
         "caption": {
             "name": config.CAPTION_MODEL,

@@ -6,9 +6,9 @@ FAISS_PATH = os.environ.get("RECALL_FAISS_PATH", os.path.join(DATA_DIR, "recall.
 UPLOAD_DIR = os.environ.get("RECALL_UPLOAD_DIR", os.path.join(DATA_DIR, "uploads"))
 
 EMBED_MODEL = os.environ.get(
-    "RECALL_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+    "RECALL_EMBED_MODEL", "google/embeddinggemma-300m"
 )
-EMBED_DIM = int(os.environ.get("RECALL_EMBED_DIM", "384"))
+EMBED_DIM = int(os.environ.get("RECALL_EMBED_DIM", "768"))
 CAPTION_MODEL = os.environ.get(
     "RECALL_CAPTION_MODEL", "Salesforce/blip-image-captioning-base"
 )

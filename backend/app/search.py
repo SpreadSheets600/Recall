@@ -81,9 +81,9 @@ def search_memories(db_path, query, limit=20, type_filter=None,
             except Exception:
                 bm25_ranked = []
 
-        qvec = embeddings.embed_texts(
-            [cleaned if cleaned.strip() else (query or "")],
-            dim=config.EMBED_DIM)[0]
+        qvec = embeddings.embed_query(
+            cleaned if cleaned.strip() else (query or ""),
+            dim=config.EMBED_DIM)
         dense_all = vectors.get_index(config.EMBED_DIM).search(
             qvec, k=config.CANDIDATE_K)
         if where:

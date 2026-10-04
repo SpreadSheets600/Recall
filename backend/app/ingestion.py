@@ -100,7 +100,8 @@ def create_memory_record(db_path: str, mem_type: str, title: str = "", path: str
                 "SELECT * FROM memories WHERE content_hash=?", (chash,)).fetchone()
             mem = db.row_to_memory(row)
             return mem, False
-        vec = embeddings.embed_texts([searchable], dim=config.EMBED_DIM)[0]
+        vec = embeddings.embed_texts([searchable], dim=config.EMBED_DIM,
+                                       titles=[title or ""])[0]
         conn.execute("UPDATE memories SET embedding=?, status='indexed' WHERE id=?",
                      (embeddings.to_blob(vec), rowid))
         conn.commit()
@@ -185,7 +186,7 @@ def rebuild_index(db_path: str):
 
     conn = db.connect(db_path)
     try:
-        rows = conn.execute("SELECT id, content, embedding FROM memories").fetchall()
+        rows = conn.execute("SELECT id, title, content, embedding FROM memories").fetchall()
     finally:
         conn.close()
     ids = []
@@ -193,9 +194,12 @@ def rebuild_index(db_path: str):
     for r in rows:
         d = dict(r)
         blob = d.get("embedding")
+        # from_blob returns None on dim mismatch so changed EMBED_DIM
+        # re-embeds instead of silently zero-padding (old bug).
         v = emb.from_blob(blob, dim=config.EMBED_DIM) if blob else None
         if v is None:
-            v = emb.embed_texts([d.get("content", "")], dim=config.EMBED_DIM)[0]
+            v = emb.embed_texts([d.get("content", "")], dim=config.EMBED_DIM,
+                                titles=[d.get("title") or ""])[0]
             conn2 = db.connect(db_path)
             try:
                 conn2.execute("UPDATE memories SET embedding=? WHERE id=?",

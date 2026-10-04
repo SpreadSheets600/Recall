@@ -8,27 +8,24 @@
 ## Current System
 
 ```text
-Backend:      FastAPI + Python (Implemented, 18 tests passing)
+Backend:      FastAPI + Python, React 19 + BoardUI (Vite build served from frontend/dist)
 Database:     SQLite + FTS5, WAL mode (Implemented)
 Lexical:      SQLite FTS5 bm25(), k1=1.2 b=0.75 (Implemented)
-Vector:       faiss-cpu 1.15.1, IndexIDMap2(IndexFlatIP) + L2-normalized vectors = cosine (Implemented, Verified)
+Vector:       faiss-cpu IndexIDMap2(IndexFlatIP) + L2-normalized vectors = cosine (Implemented, Verified)
 Uploads:      POST /api/upload (multipart, multi-file + source) → data/uploads/ → ingest_file
                (Implemented, Verified — serves back via GET /api/memories/{id}/file)
-Tags/topics:  TF keyword extraction in textutil.extract_topics/tags_for, auto-filled at ingest
-               unless explicit tags given (Implemented, Verified)
+Tags/topics:  TF keyword extraction, auto-filled at ingest unless explicit (Implemented, Verified)
 Models info:  GET /api/models reports per-model ready/fallback, size, license (Implemented, Verified)
-Image caption: Interface isolated in backend/app/vision.py; BLIP-base default, Florence-2 opt-in
-               (Experimental — lazy-loads only when torch+transformers installed; returns "" offline)
-OCR:          Wrapper in backend/app/ocr.py; rapidocr-onnxruntime default, pytesseract fallback
-               (Experimental — returns "" when neither installed; blank-image path tested)
-Text embed:   all-MiniLM-L6-v2 via sentence-transformers when installed, else deterministic
-               hash fallback (Implemented — fallback Verified in tests; ST path needs model download)
-Image-text:   Deferred; opt-in siglip-base-patch16-224 (Planned)
-Frontend:     Search / Upload / Library / Models tabs; dropzone + quick-note + API cards;
-               detail dialog with AI description, extracted content, OCR, topics/tags, metadata,
-               EXIF, related, delete (Implemented, JS syntax-checked, live-verified)
-Inference:    Local CPU only (Implemented)
-Search:       No generative LLM/VLM at query time (Implemented, Verified — test_api_search_no_llm)
+Image caption: BLIP-base default, Florence-2 opt-in — ON by default (script installs ai extras);
+               every uploaded image gets caption + OCR at ingest (Implemented)
+OCR:          rapidocr-onnxruntime default, pytesseract fallback — ON by default (Implemented)
+Text embed:   google/embeddinggemma-300m default (768d, Gemma terms, gated download);
+               → all-MiniLM-L6-v2 → hash fallback chain (Implemented)
+Image-text:   Deferred; images embed via their caption+OCR text (EmbeddingGemma is text-only)
+Frontend:     React + BoardUI free components (button/input/file-upload/tabs/badge/chip/
+               sidebar/stat-cards/data-table/settings-modal/theme-toggle), Vite build (Implemented)
+Inference:    CPU-first; GPU used opportunistically if present, never required
+Search:       No generative LLM/VLM at query time (Implemented, Verified)
 ```
 
 ## 1. Project Overview
@@ -301,6 +298,50 @@ gain), nomic (500MB+ overkill).
 `BAAI/bge-small-en-v1.5`, `thenlper/gte-small`, `intfloat/e5-small-v2`;
 SBERT pretrained-models table.
 
+### EmbeddingGemma (researched Oct 2026, Implemented as default with fallback chain)
+
+**What it is.** Google's 300M-parameter open embedding model (Gemma 3 backbone),
+sentence-transformers compatible. **Text in → 768d vector out (text-only).**
+It cannot embed images — there is no image input. For images Recall embeds the
+caption + OCR + tags text, which is exactly the searchable representation.
+
+**Key facts (from the official HF model card, verified Oct 2026).**
+
+- Params/size: 0.3B, safetensors F32. Small enough for laptop CPU/RAM.
+- Dims: 768 native, truncatable to 512/256/128 via Matryoshka (MRL) + renormalize.
+  Recall uses `RECALL_EMBED_DIM` (default 768) and truncates when smaller.
+- Context: 2048 tokens (vs 256 for MiniLM) — whole documents fit.
+- Quality: MTEB English v2 mean 69.67 @768d (multilingual 61.15) — far above
+  MiniLM-L6 (~56–59) and BGE-small (~62). Best quality per MB in its class.
+- Prompts are mandatory and asymmetric: queries
+  `task: search result | query: {text}`, documents
+  `title: {title | "none"} | text: {content}`. ST exposes
+  `encode_query/encode_document`; Recall formats prompts manually and falls
+  back to plain `encode()` on old ST versions.
+- Precision: fp32 or bf16 (NOT float16). CPU runs fp32 — fine.
+- CPU: on-device-focused design (phones/laptops); 300M fp32 runs on CPU in
+  ~100s of ms per batch. GPU, if present, is used opportunistically by
+  sentence-transformers — never required.
+- License: **Gemma Terms of Use (gated)** — must accept on HF and download
+  with an `HF_TOKEN`. NOT Apache/MIT. This is the one non-permissive piece in
+  the stack; everything else stays permissive.
+
+**Fallback chain (all automatic, reported in `/api/models`).**
+
+```text
+EmbeddingGemma (if installed + downloadable)
+  → all-MiniLM-L6-v2 (Apache-2.0, unattended download)
+    → deterministic hash vectors (no download, keeps search working)
+```
+
+**Dim migration.** Changing `RECALL_EMBED_DIM` (e.g. 384→768) invalidates
+stored blobs. `rebuild_index` now re-embeds any row whose blob dim differs
+from config instead of zero-padding. Old-padding behavior was a silent
+corruption bug — fixed with a regression test.
+
+**References.** `huggingface.co/google/embeddinggemma-300m`,
+paper `arxiv.org/abs/2509.20354`.
+
 ### FAISS
 
 **What it is.** In-process approximate/exact nearest-neighbor index. For
@@ -500,10 +541,15 @@ detailed mode. Larger VLMs rejected (see §9): reasoning unneeded at search.
 Status: Accepted (`Planned`). CPU-first ONNX, ~30MB, Paddle-grade accuracy.
 Tesseract fallback; torch-heavy OCR rejected for v1.
 
-### ADR-006 — all-MiniLM-L6-v2 default embedding
+### ADR-006 — EmbeddingGemma default, MiniLM/hash fallback chain
 
-Status: Accepted (`Planned`). 80MB/384d baseline; BGE-small upgrade path.
-Large/prefix-friction encoders rejected.
+Status: Accepted (Implemented, Oct 2026 — supersedes the MiniLM-default part
+of the earlier decision). `RECALL_EMBED_MODEL=google/embeddinggemma-300m`,
+`RECALL_EMBED_DIM=768`. Rationale: +10 MTEB points over MiniLM at 300M params,
+MRL truncation, 2048-token context, CPU-runnable fp32. MiniLM stays as the
+unattended fallback; hash vectors as the offline fallback. Gemma gated-license
+cost is contained: it only affects the first download, never search or
+redistribution of code.
 
 ### ADR-007 — Defer image-text embeddings
 
@@ -529,6 +575,27 @@ Status: Accepted (Implemented, Verified). No model download may exist, so
 `textutil.extract_topics/tags_for` (frequency over non-stopword len≥3 tokens)
 fills `tags` when the caller passes none; explicit tags always win. Keeps the
 topics/tags UI truthful offline; replaceable with a keyphrase model later.
+
+### ADR-011 — React + BoardUI frontend (user override, Oct 2026)
+
+Status: Accepted (Implemented). Supersedes ADR-008 (vanilla, no framework).
+User explicitly approved React. BoardUI (React 19 + Tailwind v4, free
+components as owned source via `npx boardui add`, React Aria behavior) fits
+the dashboard shape: stat-cards, data-table, file-upload, tabs, sidebar,
+settings-modal, theme-toggle. Only free components are used — every Pro
+component/chart/template requires a paid Pro license and is rejected for this
+open-source repo. Frontend is a Vite build served by FastAPI (`frontend/dist`);
+`script.sh` runs `npm ci && npm run build` and fails loudly if node is missing.
+
+### ADR-012 — Caption + OCR ON by default for images; GPU opportunistic
+
+Status: Accepted (Implemented). `script.sh` defaults to `--extras all`
+(torch CPU + transformers + sentence-transformers + rapidocr + pypdf) so a
+fresh `./script.sh --seed` gives captioned, OCR'd, embedded memories with zero
+extra steps. If the user trims extras, ingestion degrades gracefully (empty
+caption/OCR, fallback vectors) and `/api/models` says exactly what is missing.
+GPU is never required: torch/ST use it only when present; CPU remains the
+supported baseline and all tests run CPU-only.
 
 ## 17. Known Limitations
 
@@ -587,7 +654,6 @@ topics/tags UI truthful offline; replaceable with a keyphrase model later.
   header; BGE/E5 MIT via metadata only) — verify exact revisions before release.
 
 ## 21. Future Improvements
-
 - Measured benchmark table (caption/OCR/embed s, RSS, p50/p95, DB size).
 - `bge-small-en-v1.5` A-B; SigLIP opt-in behind evaluation + per-folder gating.
 - EXIF GPS map filter; "similar images" via phash + optional SigLIP.

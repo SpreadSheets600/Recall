@@ -216,3 +216,57 @@ def test_models_endpoint(tmpdb):
         assert {"embed", "caption", "ocr", "vector_index", "lexical"} <= set(body)
     finally:
         config.DB_PATH = old_db
+
+
+def test_gemma_prompts():
+    from backend.app.embeddings import format_doc, format_query
+
+    assert format_query("hello") == "task: search result | query: hello"
+    assert format_doc("My title", "body") == "title: My title | text: body"
+    assert format_doc("", "body") == "title: none | text: body"
+
+
+def test_mrl_truncation_renormalizes():
+    import numpy as np
+
+    from backend.app.embeddings import truncate_mrl
+
+    v = np.random.RandomState(0).randn(768).astype(np.float32)
+    for dim in (512, 256, 128):
+        out = truncate_mrl(v, dim)
+        assert out.shape == (dim,)
+        assert abs(float(np.linalg.norm(out)) - 1.0) < 1e-5
+
+
+def test_rebuild_reembeds_on_dim_change(tmpdb):
+    from backend.app import embeddings as emb
+
+    old_dim = config.EMBED_DIM
+    config.EMBED_DIM = 384
+    try:
+        m, _ = add(tmpdb, mem_type="text", title="dim", content="dimension migration probe")
+        conn = db.connect(tmpdb)
+        try:
+            blob = conn.execute("SELECT embedding FROM memories WHERE id=?",
+                                (m["id"],)).fetchone()["embedding"]
+        finally:
+            conn.close()
+        import numpy as np
+
+        assert np.frombuffer(blob, dtype=np.float32).shape[0] == 384
+        # Same blob under a new dim must NOT be silently padded.
+        assert emb.from_blob(blob, dim=768) is None
+        config.EMBED_DIM = 768
+        vectors.reset_index(768)
+        n = ing.rebuild_index(tmpdb)
+        assert n == 1
+        conn = db.connect(tmpdb)
+        try:
+            blob2 = conn.execute("SELECT embedding FROM memories WHERE id=?",
+                                 (m["id"],)).fetchone()["embedding"]
+        finally:
+            conn.close()
+        assert np.frombuffer(blob2, dtype=np.float32).shape[0] == 768
+    finally:
+        config.EMBED_DIM = old_dim
+        vectors.reset_index(old_dim)
