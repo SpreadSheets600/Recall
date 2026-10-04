@@ -9,16 +9,19 @@ set -euo pipefail
 
 PORT="8000"
 HOST="127.0.0.1"
-EXTRAS="test,pdf"
+EXTRAS="all"
 SKIP_TESTS="0"
 PREFETCH="0"
 SEED="0"
+NO_FRONTEND="0"
 
 usage() {
-  echo "Usage: ./script.sh [--port PORT] [--host HOST] [--extras a,b] [--skip-tests] [--prefetch-models] [--seed]"
-  echo "  --extras: comma-separated uv extras (default: test,pdf). Use 'all' for ai,ocr,pdf,test."
+  echo "Usage: ./script.sh [--port PORT] [--host HOST] [--extras a,b] [--skip-tests] [--prefetch-models] [--seed] [--no-frontend]"
+  echo "  --extras: comma-separated uv extras (default: all = ai,ocr,pdf,test)."
+  echo "            Trim to e.g. 'test,pdf' for a light install (caption/OCR/embeddings fall back gracefully)."
   echo "  --prefetch-models: download embedding model now so first search is warm."
   echo "  --seed: insert 2 demo memories so search works immediately."
+  echo "  --no-frontend: skip the React build (API only; needs a previous build for the UI)."
 }
 
 while [ "$#" -gt 0 ]; do
@@ -29,6 +32,7 @@ while [ "$#" -gt 0 ]; do
     --skip-tests) SKIP_TESTS="1"; shift 1 ;;
     --prefetch-models) PREFETCH="1"; shift 1 ;;
     --seed) SEED="1"; shift 1 ;;
+    --no-frontend) NO_FRONTEND="1"; shift 1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1"; usage; exit 1 ;;
   esac
@@ -99,8 +103,18 @@ import importlib.util
 for k, m in models_info.models_status().items():
     state = 'READY' if m.get('ready') else 'fallback/offline-ok'
     print(f\"  {k:12s} {m.get('name','?')[:52]:52s} [{state}]\")
-print('  (AI extras install: ./script.sh --extras all ; search works without them)')
+print('  (trim with --extras test,pdf for a light install; search works without AI extras)')
+print('  (EmbeddingGemma is gated: accept terms at huggingface.co/google/embeddinggemma-300m, then export HF_TOKEN)')
 "
+
+if [ "$NO_FRONTEND" = "0" ]; then
+  echo ""
+  echo "[recall] building frontend (React + BoardUI)..."
+  command -v node >/dev/null || { echo "ERROR: node is required for the frontend build (use --no-frontend for API only)."; exit 1; }
+  (cd frontend && npm ci --no-audit --no-fund && npm run build)
+else
+  echo "[recall] skipping frontend build (--no-frontend)."
+fi
 
 if [ "$PREFETCH" = "1" ]; then
   echo ""

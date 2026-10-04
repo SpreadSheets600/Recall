@@ -624,8 +624,18 @@ supported baseline and all tests run CPU-only.
    lazy and untested with real weights; all latency figures remain
    reported/estimated. Next: measure caption s/img, OCR s/img, RSS, p50/p95.
 5. **pkill -f with the server's own command string kills the invoking shell
-   too** (pattern matches own cmdline). Verify with `curl` from a separate
-   call and prefer port-based checks; harmless but cost a re-commit.
+   too** (pattern matches own cmdline). Use a bracket trick
+   (`pkill -f "port 876[7]"`) so the pattern doesn't match the invoker.
+6. **Vite/plugin version pairing.** `@vitejs/plugin-react@6` requires Vite 8;
+   with Vite 6 the resolver fails. Pinned `@vitejs/plugin-react@^4` for
+   Vite 6. Keep the pair in sync on upgrades.
+7. **BoardUI `data-table` is a hardcoded customers demo, not a generic table.**
+   Library page uses the base `table` primitives instead. Only free BoardUI
+   items are vendored; every Pro item needs a paid license key.
+8. **React UI is build-verified + API-verified, not browser-tested** (no
+   browser in this environment). `vite build` passes; all API calls the UI
+   makes were exercised with curl. Interaction bugs (e.g. Select popover,
+   dialog focus) should be clicked through on first real run.
 
 ## 19. Solutions
 
@@ -701,6 +711,9 @@ Official / primary sources only (no blog-post trust):
 | Component | License | Notes |
 |---|---|---|
 | Python deps: FastAPI MIT; Uvicorn BSD-3 (verify at pin); Transformers Apache-2.0; sentence-transformers Apache-2.0; PyTorch BSD-3-Clause; Pillow HPND; faiss-cpu MIT; SQLite public domain | permissive | preserve notices |
+| **EmbeddingGemma (`google/embeddinggemma-300m`)** | **Gemma Terms of Use — GATED** | Requires HF account + terms acceptance + `HF_TOKEN` for download. Only affects weights download, never code. Fallback chain keeps the app working without it. |
+| **BoardUI free components (vendored source)** | source-you-own per BoardUI free tier | Only free items used. **Pro components/templates require a paid Pro license — never add them.** |
+| React, Vite, Tailwind, React Aria | MIT | standard permissive frontend stack |
 | Caption: BLIP BSD-3-Clause; GIT MIT; ViT-GPT2 Apache-2.0; Florence-2 MIT (model) but code header Apache-2.0 + remote code — pin + review | permissive w/ caution | re-check revision |
 | Embeddings: MiniLM Apache-2.0; BGE-small MIT (metadata only); GTE-small MIT; E5 MIT | permissive | keep card record |
 | OCR: Tesseract/EasyOCR/PaddleOCR/RapidOCR Apache-2.0 (RapidOCR weights per `MODEL_LICENSES.md`) | permissive | — |

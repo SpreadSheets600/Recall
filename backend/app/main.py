@@ -291,15 +291,20 @@ def memory_file(mid: int):
 
 BASE = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
 BASE = os.path.abspath(BASE)
+DIST = os.path.join(BASE, "dist")
 
 
 @app.get("/", include_in_schema=False)
 def root():
-    index = os.path.join(BASE, "index.html")
-    if os.path.exists(index):
-        return FileResponse(index)
+    for candidate in (os.path.join(DIST, "index.html"),
+                      os.path.join(BASE, "index.html")):
+        if os.path.exists(candidate):
+            return FileResponse(candidate)
     return {"name": "Recall", "docs": "/docs"}
 
 
+if os.path.isdir(os.path.join(DIST, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(DIST, "assets")),
+              name="assets")
 if os.path.isdir(BASE):
     app.mount("/static", StaticFiles(directory=BASE), name="static")
