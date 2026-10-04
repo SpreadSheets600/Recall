@@ -3,6 +3,7 @@ import os
 DATA_DIR = os.environ.get("RECALL_DATA_DIR", "data")
 DB_PATH = os.environ.get("RECALL_DB_PATH", os.path.join(DATA_DIR, "recall.db"))
 FAISS_PATH = os.environ.get("RECALL_FAISS_PATH", os.path.join(DATA_DIR, "recall.faiss"))
+UPLOAD_DIR = os.environ.get("RECALL_UPLOAD_DIR", os.path.join(DATA_DIR, "uploads"))
 
 EMBED_MODEL = os.environ.get(
     "RECALL_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"

@@ -12,8 +12,38 @@ TEXT_EXTS = {".txt", ".md", ".markdown", ".html", ".htm"}
 STOPWORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "with",
     "about", "is", "are", "was", "were", "i", "my", "me", "that", "this",
-    "it", "from", "last", "week", "month",
+    "it", "from", "last", "week", "month", "be", "as", "at", "by", "an",
+    "you", "your", "we", "they", "he", "she", "has", "have", "had", "will",
+    "would", "can", "could", "should", "there", "their", "what", "when",
+    "where", "which", "how", "all", "also", "into", "more", "than", "then",
+    "them", "these", "those", "such", "only", "over", "under", "between",
+    "image", "screenshot", "photo", "picture", "file",
 }
+
+TOPIC_STOP = STOPWORDS | {
+    "using", "used", "one", "two", "new", "like", "just", "get", "got",
+    "much", "many", "well", "even", "every", "without", "within",
+}
+
+
+def extract_topics(text: str, limit: int = 8):
+    from collections import Counter
+
+    toks = [t for t in tokenize(text or "") if t not in TOPIC_STOP and len(t) >= 3]
+    if not toks:
+        return []
+    counts = Counter(toks)
+    # Prefer longer, content-bearing tokens; break ties alphabetically.
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))
+    return [w for w, _ in ranked[:limit]]
+
+
+def tags_for(title="", content="", description="", ocr_text="", existing=""):
+    if existing and existing.strip():
+        return existing.strip()
+    joined = " ".join(x for x in (title, description, content, ocr_text) if x)
+    topics = extract_topics(joined)
+    return ", ".join(topics)
 
 
 def sha256_bytes(data: bytes):

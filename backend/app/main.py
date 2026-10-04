@@ -1,6 +1,7 @@
 import os
+import shutil
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from . import config, db
 from . import ingestion as ing
+from . import models_info
 from . import search as searchsvc
 from . import vectors
 
@@ -35,6 +37,10 @@ _started = False
 def ensure_started():
     global _started
     db.init_db(config.DB_PATH)
+    try:
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+    except Exception:
+        pass
     if not _started:
         try:
             ing.rebuild_index(config.DB_PATH)
@@ -203,7 +209,10 @@ def stats():
             "by_type": by_type,
             "vectors": int(nvec),
             "db_bytes": size,
+            "uploads": len([f for f in os.listdir(config.UPLOAD_DIR)])
+            if os.path.isdir(config.UPLOAD_DIR) else 0,
             "models": {"embed": config.EMBED_MODEL, "caption": config.CAPTION_MODEL},
+            "models_detail": models_info.models_status(),
         }
     finally:
         conn.close()
@@ -214,6 +223,70 @@ def rebuild():
     ensure_started()
     n = ing.rebuild_index(config.DB_PATH)
     return {"rebuilt": n}
+
+
+@app.get("/api/models")
+def models():
+    ensure_started()
+    return models_info.models_status()
+
+
+@app.post("/api/upload")
+def upload_files(files: list[UploadFile] = File(...), source: str = Form("")):
+    ensure_started()
+    try:
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+    except Exception:
+        pass
+    results = []
+    for f in files:
+        name = os.path.basename(f.filename or "upload")
+        if not name or name in (".", ".."):
+            name = "upload"
+        dest = os.path.join(config.UPLOAD_DIR, name)
+        base, ext = os.path.splitext(dest)
+        n = 1
+        while os.path.exists(dest):
+            dest = "%s-%d%s" % (base, n, ext)
+            n += 1
+        try:
+            with open(dest, "wb") as out:
+                shutil.copyfileobj(f.file, out)
+        except Exception as e:
+            results.append({"filename": f.filename, "status": "failed",
+                            "error": str(e)})
+            continue
+        try:
+            r = ing.ingest_file(config.DB_PATH, dest, source or "", name)
+            r["filename"] = f.filename
+            r["stored_as"] = os.path.basename(dest)
+            results.append(r)
+        except Exception as e:
+            results.append({"filename": f.filename, "status": "failed",
+                            "error": str(e)})
+        finally:
+            try:
+                f.file.close()
+            except Exception:
+                pass
+    ok = sum(1 for r in results if r.get("status") in ("indexed", "skipped"))
+    return {"count": len(results), "indexed": ok, "results": results}
+
+
+@app.get("/api/memories/{mid}/file")
+def memory_file(mid: int):
+    ensure_started()
+    conn = db.connect(config.DB_PATH)
+    try:
+        row = conn.execute("SELECT path FROM memories WHERE id=?", (mid,)).fetchone()
+    finally:
+        conn.close()
+    if row is None or not row["path"]:
+        raise HTTPException(status_code=404, detail="no file for this memory")
+    path = row["path"]
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="file not found on disk")
+    return FileResponse(path)
 
 
 BASE = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")

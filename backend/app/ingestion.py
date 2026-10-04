@@ -64,6 +64,13 @@ def create_memory_record(db_path: str, mem_type: str, title: str = "", path: str
         mem_type = detect_type(path or title)
     domain = domain_of(source)
     filename = os.path.basename(path or "")
+    if not tags:
+        try:
+            from .textutil import tags_for
+
+            tags = tags_for(title, content, description, ocr_text, "")
+        except Exception:
+            tags = tags or ""
     searchable = build_searchable_text(title, content, description, ocr_text,
                                        tags, filename, source)
     if not searchable.strip():
