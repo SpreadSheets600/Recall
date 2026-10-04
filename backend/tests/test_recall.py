@@ -160,3 +160,59 @@ def test_api_search_no_llm(tmpdb):
     r = c.post("/api/search", json={"query": "Linux terminal"})
     assert r.status_code == 200
     assert r.json()["count"] >= 1
+
+
+def test_auto_tags_extracted(tmpdb):
+    m, _ = add(tmpdb, mem_type="text", title="FAISS notes",
+               content="vector index for dense retrieval with FlatIP quantization")
+    assert m["tags"], "tags should be auto-generated"
+    assert "vector" in m["tags"] or "retrieval" in m["tags"]
+
+
+def test_explicit_tags_preserved(tmpdb):
+    m, _ = add(tmpdb, mem_type="text", title="t", content="blah blah",
+               tags="custom, mine")
+    assert m["tags"] == "custom, mine"
+
+
+def test_upload_endpoint(tmpdb, tmp_path):
+    from fastapi.testclient import TestClient
+
+    old_db, old_up = config.DB_PATH, config.UPLOAD_DIR
+    up = str(tmp_path / "uploads")
+    os.makedirs(up, exist_ok=True)
+    config.DB_PATH = tmpdb
+    config.UPLOAD_DIR = up
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        src = tmp_path / "note.txt"
+        src.write_text("upload pipeline test content uniqueword123")
+        with open(src, "rb") as f:
+            r = c.post("/api/upload", files={"files": ("note.txt", f, "text/plain")})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["indexed"] == 1
+        mid = body["results"][0]["id"]
+        assert c.get(f"/api/memories/{mid}/file").status_code == 200
+    finally:
+        config.DB_PATH = old_db
+        config.UPLOAD_DIR = old_up
+
+
+def test_models_endpoint(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        r = c.get("/api/models")
+        assert r.status_code == 200
+        body = r.json()
+        assert {"embed", "caption", "ocr", "vector_index", "lexical"} <= set(body)
+    finally:
+        config.DB_PATH = old_db

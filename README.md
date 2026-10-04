@@ -7,12 +7,25 @@ Local-first multimodal personal memory and retrieval.
 ## Quickstart
 
 ```bash
-uv sync --extra test
-uv run pytest -q
-RECALL_DATA_DIR=./data uv run uvicorn backend.app.main:app --port 8000
+./script.sh --seed          # install (test+pdf), test, seed 2 demos, start server
+./script.sh --extras all    # also install AI extras (torch/transformers/OCR)
+./script.sh --help          # all flags
 ```
 
-Open `http://localhost:8000`.
+Open `http://localhost:8000` — use the **Upload** tab or:
+
+```bash
+# single file
+curl -F "files=@shot.png" -F "source=https://github.com/…" localhost:8000/api/upload
+# text note
+curl -X POST localhost:8000/api/memories \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"FAISS notes","content":"vector index for dense retrieval"}'
+# server-side path
+curl -X POST localhost:8000/api/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"path":"/abs/path/to/file.pdf"}'
+```
 
 ## Architecture
 
@@ -30,11 +43,12 @@ ingest (metadata → caption/OCR → searchable text → embedding)
 
 ```text
 GET  /api/health
-GET  /api/memories  GET /api/memories/{id}
+GET  /api/memories  GET /api/memories/{id}  GET /api/memories/{id}/file
 POST /api/memories  DELETE /api/memories/{id}
+POST /api/upload            (multipart files + optional source)
 POST /api/search
 POST /api/ingest   GET /api/ingest/{id}
-GET  /api/stats    POST /api/rebuild
+GET  /api/stats    GET /api/models    POST /api/rebuild
 ```
 
 ## Optional extras

@@ -8,10 +8,15 @@
 ## Current System
 
 ```text
-Backend:      FastAPI + Python (Implemented, 14 tests passing)
+Backend:      FastAPI + Python (Implemented, 18 tests passing)
 Database:     SQLite + FTS5, WAL mode (Implemented)
 Lexical:      SQLite FTS5 bm25(), k1=1.2 b=0.75 (Implemented)
 Vector:       faiss-cpu 1.15.1, IndexIDMap2(IndexFlatIP) + L2-normalized vectors = cosine (Implemented, Verified)
+Uploads:      POST /api/upload (multipart, multi-file + source) → data/uploads/ → ingest_file
+               (Implemented, Verified — serves back via GET /api/memories/{id}/file)
+Tags/topics:  TF keyword extraction in textutil.extract_topics/tags_for, auto-filled at ingest
+               unless explicit tags given (Implemented, Verified)
+Models info:  GET /api/models reports per-model ready/fallback, size, license (Implemented, Verified)
 Image caption: Interface isolated in backend/app/vision.py; BLIP-base default, Florence-2 opt-in
                (Experimental — lazy-loads only when torch+transformers installed; returns "" offline)
 OCR:          Wrapper in backend/app/ocr.py; rapidocr-onnxruntime default, pytesseract fallback
@@ -19,7 +24,9 @@ OCR:          Wrapper in backend/app/ocr.py; rapidocr-onnxruntime default, pytes
 Text embed:   all-MiniLM-L6-v2 via sentence-transformers when installed, else deterministic
                hash fallback (Implemented — fallback Verified in tests; ST path needs model download)
 Image-text:   Deferred; opt-in siglip-base-patch16-224 (Planned)
-Frontend:     HTML + CSS + vanilla JS, shadcn-html-inspired tokens, no build step (Implemented)
+Frontend:     Search / Upload / Library / Models tabs; dropzone + quick-note + API cards;
+               detail dialog with AI description, extracted content, OCR, topics/tags, metadata,
+               EXIF, related, delete (Implemented, JS syntax-checked, live-verified)
 Inference:    Local CPU only (Implemented)
 Search:       No generative LLM/VLM at query time (Implemented, Verified — test_api_search_no_llm)
 ```
@@ -507,6 +514,22 @@ opt-in only if evaluation shows visual-similarity wins justify cost.
 
 Status: Accepted (`Planned`). No React/Vue/build; copy kit components directly.
 
+### ADR-009 — Multipart upload endpoint beside JSON/path ingest
+
+Status: Accepted (Implemented, Verified). Browsers cannot easily POST raw
+server paths, so `POST /api/upload` (multipart `files` + `source` form field)
+saves into `data/uploads/` (collision-suffixed) and reuses `ingest_file`.
+JSON `/api/memories` (quick notes) and `/api/ingest` (server paths, scripting)
+stay — one ingestion core, three doors. Files served back read-only via
+`GET /api/memories/{id}/file` for thumbnails/previews.
+
+### ADR-010 — Deterministic TF auto-tags at ingest
+
+Status: Accepted (Implemented, Verified). No model download may exist, so
+`textutil.extract_topics/tags_for` (frequency over non-stopword len≥3 tokens)
+fills `tags` when the caller passes none; explicit tags always win. Keeps the
+topics/tags UI truthful offline; replaceable with a keyphrase model later.
+
 ## 17. Known Limitations
 
 - Caption/OCR quality bounds text-first image search; non-textual visuals
@@ -533,6 +556,9 @@ Status: Accepted (`Planned`). No React/Vue/build; copy kit components directly.
 4. **No in-repo GPU/CPU model benchmarks yet.** Caption/OCR/ST paths are
    lazy and untested with real weights; all latency figures remain
    reported/estimated. Next: measure caption s/img, OCR s/img, RSS, p50/p95.
+5. **pkill -f with the server's own command string kills the invoking shell
+   too** (pattern matches own cmdline). Verify with `curl` from a separate
+   call and prefer port-based checks; harmless but cost a re-commit.
 
 ## 19. Solutions
 
