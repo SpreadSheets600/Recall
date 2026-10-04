@@ -636,6 +636,17 @@ supported baseline and all tests run CPU-only.
    browser in this environment). `vite build` passes; all API calls the UI
    makes were exercised with curl. Interaction bugs (e.g. Select popover,
    dialog focus) should be clicked through on first real run.
+9. **BoardUI `DashboardSidebar` rendered blank in production** (user
+   screenshot: empty black gutter where the nav should be, header cramped).
+   Root cause never confirmed — no browser in this environment to inspect;
+   suspects are its collapse/search/team-menu machinery and the
+   anchor-interception hack it forced on the app. Fix: replaced with
+   `src/components/RecallSidebar.jsx` built from verified BoardUI primitives
+   (`Button` ghost/secondary rows, `Badge` counts, `Divider`, `ThemeToggle`).
+   Notably this also caught a real API lesson: BoardUI `Button`
+   `leadingIcon/trailingIcon` take **components**, not elements. Bundle shrank
+   921KB → 619KB as a side effect. Status: Fixed, build-verified; needs one
+   visual click-through.
 
 ## 19. Solutions
 
