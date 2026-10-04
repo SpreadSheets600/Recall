@@ -47,70 +47,21 @@ The database is authoritative — FAISS is an in-RAM cache rebuilt from SQLite.
 
 ```mermaid
 flowchart TB
-    subgraph capture["Capture"]
-        UP["File upload\nPOST /api/upload"]
-        QN["Quick note\nPOST /api/memories"]
-        SP["Server path\nPOST /api/ingest"]
-        EX["Browser extension\nweb clip + dwell time"]
-    end
-    subgraph ingest["Ingest — AI runs here, once per memory"]
-        DT["Detect type + metadata\nEXIF, pHash, file size"]
-        XC["Extract content\ntext, PDF, HTML"]
-        EN["Enrich\nBLIP caption · RapidOCR · autotags"]
-        ST["Searchable text\ntitle + body + OCR + tags + filename"]
-        EB["Embed\nEmbeddingGemma 768d → MiniLM → hash fallback"]
-        DT --> XC --> EN --> ST --> EB
-    end
-    subgraph store["Store — SQLite is authoritative"]
-        DB[("memories table\n+ embedding BLOBs")]
-        FTS[("FTS5 index\nporter tokenizer, BM25")]
-        VX[("FAISS index\nIndexFlatIP cosine\nrebuilt from SQLite")]
-        EB --> DB
-        DB --> FTS
-        DB --> VX
-    end
-    subgraph query["Query — no LLM, stored artifacts only"]
-        QP["Parse query\ntype / domain / date hints"]
-        BM["BM25 top-N\nlexical leg"]
-        DV["FAISS top-N\nsemantic leg"]
-        FU["Score fusion\n0.7 weighted + 0.3 RRF"]
-        RB["Relevance bonuses\ncoverage, title, file, phrase"]
-        QP --> BM --> FU
-        QP --> DV --> FU
-        FU --> RB
-    end
-    subgraph serve["Serve"]
-        API["FastAPI\nJSON API + static UI"]
-        UI["React + BoardUI dashboard\nsearch, library, graph, models"]
-        API --> UI
-    end
-    capture --> ingest
-    store --> query
-    query --> serve
+    C["Capture\nupload · note · path · extension"] --> I["Ingest (AI runs once)\nextract → caption + OCR + tags → embed"]
+    I --> DB[("SQLite + FTS5\nsource of truth")]
+    I --> VX["FAISS cosine\nrebuilt from SQLite"]
+    Q["Query"] --> F["Fuse: 0.7 * weighted scores + 0.3 * RRF\n+ relevance bonuses, tiny tie-breakers"]
+    DB --> F
+    VX --> F
+    F --> R["Ranked results\nscore + match reasons"]
 ```
 
-### How ranking works
-
-Both retrieval legs contribute calibrated *scores* (min-max normalized per
-query), weighted by the `w_bm25` / `w_dense` settings, mixed with an RRF term
-for rank robustness. Large bonuses are relevance-only; engagement signals are
-tiny tie-breakers so they can never outvote a better match.
-
-```mermaid
-flowchart LR
-    Q["Query + hard filters"] --> BM25["FTS5 BM25\ntop-N + raw scores"]
-    Q --> DENSE["FAISS cosine\ntop-N + raw scores"]
-    BM25 --> N["Per-leg min-max\nnormalize to 0..1"]
-    DENSE --> N
-    N --> F["relevance = 0.7 * (w_bm25 * n_bm25 + w_dense * n_dense)\n+ 0.3 * n_rrf"]
-    F --> B["Relevance bonuses\nterm coverage · title · filename/tag · phrase"]
-    B --> T["Tie-breakers\ntype/domain match · dwell ≤ 0.03 · recency ≤ 0.02"]
-    T --> R["Ranked results\nscore + match reasons"]
-```
-
-- Database is authoritative; FAISS rebuilds from SQLite (`POST /api/rebuild`).
-- AI runs at ingest only; search uses stored artifacts.
-- See `docs/KNOWLEDGE.md` for decisions, tradeoffs, and licenses.
+AI runs once at ingest; search is deterministic (SQLite + BM25 + FAISS).
+The database is authoritative — FAISS is an in-RAM cache rebuilt from SQLite.
+Ranking mixes calibrated BM25/dense scores (`w_bm25` / `w_dense` settings)
+with an RRF term; only relevance signals get large bonuses, so engagement
+stats can never outvote a better match.
+See `docs/KNOWLEDGE.md` for decisions, tradeoffs, and licenses.
 
 ## Features
 
