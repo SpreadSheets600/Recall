@@ -1,8 +1,16 @@
 # Recall
 
-Local-first multimodal personal memory and retrieval.
+![Recall — local-first multimodal personal memory](docs/banner.png)
 
-> Think at ingest. Retrieve deterministically. No LLM required for search.
+Local-first multimodal personal memory and retrieval. Save webpages, images,
+screenshots, PDFs, and notes — find them later with hybrid lexical + semantic
+search. No cloud, no accounts, no LLM at query time.
+
+> Think at ingest. Retrieve deterministically.
+
+[![Watch the demo](https://img.youtube.com/vi/1NzE_2FwT_U/maxresdefault.jpg)](https://youtu.be/1NzE_2FwT_U)
+
+*Click for the video walkthrough.*
 
 ## Quickstart
 
@@ -34,26 +42,103 @@ curl -X POST localhost:8000/api/ingest \
 
 ## Architecture
 
-```text
-ingest (metadata → caption/OCR → searchable text → embedding)
-  → SQLite (+FTS5 BM25) + FAISS (FlatIP cosine)
-  → query (BM25 ∥ vector → RRF k=60 → metadata/recency boosts)
+AI runs once at ingest; search is deterministic (SQLite + BM25 + FAISS).
+The database is authoritative — FAISS is an in-RAM cache rebuilt from SQLite.
+
+```mermaid
+flowchart TB
+    subgraph capture["Capture"]
+        UP["File upload\nPOST /api/upload"]
+        QN["Quick note\nPOST /api/memories"]
+        SP["Server path\nPOST /api/ingest"]
+        EX["Browser extension\nweb clip + dwell time"]
+    end
+    subgraph ingest["Ingest — AI runs here, once per memory"]
+        DT["Detect type + metadata\nEXIF, pHash, file size"]
+        XC["Extract content\ntext, PDF, HTML"]
+        EN["Enrich\nBLIP caption · RapidOCR · autotags"]
+        ST["Searchable text\ntitle + body + OCR + tags + filename"]
+        EB["Embed\nEmbeddingGemma 768d → MiniLM → hash fallback"]
+        DT --> XC --> EN --> ST --> EB
+    end
+    subgraph store["Store — SQLite is authoritative"]
+        DB[("memories table\n+ embedding BLOBs")]
+        FTS[("FTS5 index\nporter tokenizer, BM25")]
+        VX[("FAISS index\nIndexFlatIP cosine\nrebuilt from SQLite")]
+        EB --> DB
+        DB --> FTS
+        DB --> VX
+    end
+    subgraph query["Query — no LLM, stored artifacts only"]
+        QP["Parse query\ntype / domain / date hints"]
+        BM["BM25 top-N\nlexical leg"]
+        DV["FAISS top-N\nsemantic leg"]
+        FU["Score fusion\n0.7 weighted + 0.3 RRF"]
+        RB["Relevance bonuses\ncoverage, title, file, phrase"]
+        QP --> BM --> FU
+        QP --> DV --> FU
+        FU --> RB
+    end
+    subgraph serve["Serve"]
+        API["FastAPI\nJSON API + static UI"]
+        UI["React + BoardUI dashboard\nsearch, library, graph, models"]
+        API --> UI
+    end
+    capture --> ingest
+    store --> query
+    query --> serve
 ```
 
-- Database is authoritative; FAISS rebuilds from SQLite.
+### How ranking works
+
+Both retrieval legs contribute calibrated *scores* (min-max normalized per
+query), weighted by the `w_bm25` / `w_dense` settings, mixed with an RRF term
+for rank robustness. Large bonuses are relevance-only; engagement signals are
+tiny tie-breakers so they can never outvote a better match.
+
+```mermaid
+flowchart LR
+    Q["Query + hard filters"] --> BM25["FTS5 BM25\ntop-N + raw scores"]
+    Q --> DENSE["FAISS cosine\ntop-N + raw scores"]
+    BM25 --> N["Per-leg min-max\nnormalize to 0..1"]
+    DENSE --> N
+    N --> F["relevance = 0.7 * (w_bm25 * n_bm25 + w_dense * n_dense)\n+ 0.3 * n_rrf"]
+    F --> B["Relevance bonuses\nterm coverage · title · filename/tag · phrase"]
+    B --> T["Tie-breakers\ntype/domain match · dwell ≤ 0.03 · recency ≤ 0.02"]
+    T --> R["Ranked results\nscore + match reasons"]
+```
+
+- Database is authoritative; FAISS rebuilds from SQLite (`POST /api/rebuild`).
 - AI runs at ingest only; search uses stored artifacts.
 - See `docs/KNOWLEDGE.md` for decisions, tradeoffs, and licenses.
+
+## Features
+
+- **Dashboard** — stats, quick capture, recent memories.
+- **Search Studio** — hybrid search with type, website-category, dwell-time,
+  and date filters, plus match-reason chips per result.
+- **Memory Library** — filter, inspect, batch-delete, JSON export/import.
+- **Knowledge graph** — term/memory/domain web of your collection.
+- **Models & AI** — backend status, live benchmark, embedding playground.
+- **Browser extension** (`extension/`) — explicit per-click web clips with
+  dwell-time tracking; re-captures update instead of duplicating.
 
 ## API
 
 ```text
 GET  /api/health
 GET  /api/memories  GET /api/memories/{id}  GET /api/memories/{id}/file
-POST /api/memories  DELETE /api/memories/{id}
-POST /api/upload            (multipart files + optional source)
+POST /api/memories  PATCH /api/memories/{id}  DELETE /api/memories/{id}
+POST /api/memories/batch-delete
+POST /api/upload                       (multipart files + optional source)
 POST /api/search
 POST /api/ingest   GET /api/ingest/{id}
 GET  /api/stats    GET /api/models    POST /api/rebuild
+GET  /api/settings  POST /api/settings
+POST /api/tools/optimize  POST /api/tools/benchmark  POST /api/tools/embed-test
+GET  /api/tools/export     POST /api/tools/import
+POST /api/extension/ingest  POST /api/extension/dwell
+GET  /api/graph
 ```
 
 ## Optional extras
