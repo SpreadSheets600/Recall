@@ -699,6 +699,19 @@ supported baseline and all tests run CPU-only.
     across ingests instead of re-initialized per image. Verified with a
     50-check endpoint audit (all green), 28 pytest tests, and a clean
     Vite build. Status: Fixed, Verified.
+13. **Uploads never reached the backend (UI silently faked success).**
+    `UploadPage` passed `onDropFiles`/`title`/`hint` to `FileUpload`, which
+    only accepts `onUploadComplete` — so dropping a file played the
+    simulated progress animation to "Uploaded successfully!" without ever
+    calling `/api/upload`. Fix: new `onFileAccepted` prop on `FileUpload`
+    (fired right after validation) wired to the real uploader, plus an
+    honest `Uploading…` queue state updated in place on completion.
+    Also fixed the allow-list mismatch: the component defaulted to
+    pdf/jpg/jpeg/png/xlsx + 8 MB, rejecting the txt/md the UI advertises —
+    now allows exactly what the ingest pipeline handles
+    (images/pdf/txt/md/html, 50 MB, matching the new server-side cap).
+    Backend itself verified for txt/png/pdf/md/multi-file/oversize.
+    Status: Fixed, Verified (28 pytest green, Vite build clean).
 
 ## 19. Solutions
 
