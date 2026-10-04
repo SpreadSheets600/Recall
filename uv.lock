@@ -1848,9 +1848,9 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "rapidocr-onnxruntime", marker = "extra == 'ocr'", specifier = ">=1.3" },
     { name = "safetensors", marker = "extra == 'ai'", specifier = ">=0.4" },
-    { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=2.6" },
+    { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=5.1" },
     { name = "torch", marker = "extra == 'ai'" },
-    { name = "transformers", marker = "extra == 'ai'", specifier = ">=4.40" },
+    { name = "transformers", marker = "extra == 'ai'", specifier = ">=4.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
 provides-extras = ["ai", "ocr", "pdf", "test"]
