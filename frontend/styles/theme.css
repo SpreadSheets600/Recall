@@ -67,6 +67,8 @@
   /* Figma `radius/2,5xl`: kanban columns and other large inset panels. */
   --radius-2-5xl: 20px;
   --radius-notification-card: 10px;
+  --radius-3lg: 16px;
+  --radius-4lg: 20px;
 
   /* ----- Shadows -------------------------------------------------------------
    * 2xs, xs, 2xl and the inner shadows already match Tailwind v4. Sizes sm, md,
@@ -244,6 +246,8 @@
   --color-border-table:            var(--color-neutral-200);
   --color-border-button-group:     var(--color-neutral-200);
   --color-border-sidebar-profile-hover: var(--color-neutral-300);
+  --color-border-card-default:     var(--color-neutral-200);
+  --color-border-card-hover:       var(--color-neutral-300);
   --color-separator-border:        var(--color-neutral-200);
   --color-separator-border-strong: var(--color-neutral-200);
   --color-border-focus-ring:       var(--color-accent-500);
@@ -566,6 +570,8 @@
   --color-border-table:            var(--color-neutral-800);
   --color-border-button-group:     color-mix(in srgb, var(--color-neutral-600) 60%, transparent);
   --color-border-sidebar-profile-hover: var(--color-neutral-600);
+  --color-border-card-default:     var(--color-neutral-700);
+  --color-border-card-hover:       var(--color-neutral-500);
   --color-separator-border:        var(--color-neutral-800);
   --color-separator-border-strong: color-mix(in srgb, var(--color-neutral-700) 60%, transparent);
 
@@ -712,6 +718,8 @@
   --color-border-table:            var(--color-border-table);
   --color-border-button-group:     var(--color-border-button-group);
   --color-border-sidebar-profile-hover: var(--color-border-sidebar-profile-hover);
+  --color-border-card-default:     var(--color-border-card-default);
+  --color-border-card-hover:       var(--color-border-card-hover);
   --color-separator-border:        var(--color-separator-border);
   --color-separator-border-strong: var(--color-separator-border-strong);
   --color-border-focus-ring:       var(--color-border-focus-ring);

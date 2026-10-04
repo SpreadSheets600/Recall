@@ -78,20 +78,22 @@ def create_memory_record(db_path: str, mem_type: str, title: str = "", path: str
     base = "|".join([mem_type, title or "", path or "", content[:5000]])
     chash = sha256_text(base)
     now = db.now_ts()
+    website_type = extra.get("website_type") or None
+    dwell_time = int(extra.get("dwell_time") or 0)
     conn = db.connect(db_path)
     try:
         cur = conn.execute(
             """INSERT OR IGNORE INTO memories
             (type,title,path,source,domain,content,description,ocr_text,tags,
              width,height,file_size,exif_json,phash,content_hash,embedding,
-             created_at,modified_at,captured_at,status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?)""",
+             created_at,modified_at,captured_at,status,website_type,dwell_time)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?)""",
             (mem_type, title, path, source, domain, searchable, description,
              ocr_text, tags, extra.get("width"), extra.get("height"),
              extra.get("file_size"),
              json.dumps(extra.get("exif", {})) if extra.get("exif") else None,
              extra.get("phash"), chash, None, now, now,
-             extra.get("captured_at") or now, "queued"),
+             extra.get("captured_at") or now, "queued", website_type, dwell_time),
         )
         conn.commit()
         rowid = cur.lastrowid
@@ -99,6 +101,10 @@ def create_memory_record(db_path: str, mem_type: str, title: str = "", path: str
             row = conn.execute(
                 "SELECT * FROM memories WHERE content_hash=?", (chash,)).fetchone()
             mem = db.row_to_memory(row)
+            if dwell_time > 0 and dwell_time > (mem.get("dwell_time") or 0):
+                conn.execute("UPDATE memories SET dwell_time=? WHERE id=?", (dwell_time, mem["id"]))
+                conn.commit()
+                mem["dwell_time"] = dwell_time
             return mem, False
         vec = embeddings.embed_texts([searchable], dim=config.EMBED_DIM,
                                        titles=[title or ""])[0]

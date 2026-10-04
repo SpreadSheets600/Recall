@@ -21,31 +21,6 @@ import { Label } from "./label";
 import { HintText } from "./hint-text";
 import { cx, sortCx } from "@/utils/cx";
 
-/**
- * Figma source: Board UI → Input (node 3665:1849).
- *
- * Architecture (mirrors the Untitled UI / React Aria pattern):
- *
- *   InputBase   — the styled field shell. Renders <AriaGroup> + adornments
- *                 + <AriaInput>. State (hover / focus / disabled / invalid)
- *                 arrives as render-prop booleans from Aria.
- *   TextField   — wraps <AriaTextField> and a TextFieldContext so size /
- *                 classes can flow from the composer down into InputBase
- *                 without prop drilling.
- *   Input       — opinionated composition: TextField → Label → InputBase
- *                 → HintText. The component most consumers use.
- *
- * Why React Aria:
- *   - Label ↔ input ↔ hint association via aria-labelledby / aria-describedby
- *   - aria-required, aria-invalid auto-applied
- *   - Form library / native validation integration
- *   - i18n, RTL, autofill edge cases handled
- *   - Render-prop state surfaces `isFocusWithin`, `isHovered`, `isDisabled`,
- *     `isInvalid`, `isRequired` — no CSS pseudo gymnastics
- *
- * Visuals stay 1:1 with Figma — see `styles/theme.css` for the tokens.
- */
-
 export type InputSize = "medium" | "small";
 
 type IconComponent = ComponentType<{
@@ -63,10 +38,6 @@ export interface TextFieldContextValue {
   inputClassName?: string;
 }
 
-/**
- * Shared by every field that wants Input's shell — `Textarea` reads the same
- * size and class overrides out of it, so a composed form stays consistent.
- */
 export const TextFieldContext = createContext<TextFieldContextValue>({});
 
 /* -------------------------------------------------------------------------- */
@@ -98,7 +69,7 @@ export function TextField({
           className,
         )}
       >
-        {children as never /* RAC accepts render-prop children */}
+        {children as never}
       </AriaTextField>
     </TextFieldContext.Provider>
   );
@@ -115,50 +86,45 @@ export interface InputBaseProps extends Omit<AriaInputProps, "size" | "className
   className?: string;
   leadingIcon?: IconComponent;
   trailingIcon?: IconComponent;
-  /** Custom element rendered in the leading slot (Phone basic uses this). */
   leadingAddon?: ReactNode;
-  /** Class for the field shell. */
   fieldClassName?: string;
-  /** Ref to the <input> element. */
   ref?: Ref<HTMLInputElement>;
-  /** Ref to the field shell wrapper. */
   groupRef?: Ref<HTMLDivElement>;
 }
 
 const inputStyles = sortCx({
   field: [
     "relative flex w-full items-center",
-    "rounded-2lg",
-    "bg-background-tertiary-default text-foreground-icon-tertiary",
-    "ring-2 ring-inset ring-transparent",
-    "transition-[background-color,box-shadow,color] duration-[var(--input-transition-ms)] ease",
+    "rounded-xl border border-border-button-default bg-background-secondary-default/50 text-foreground-icon-tertiary shadow-2xs",
+    "hover:border-border-button-hover",
+    "focus-within:border-border-focus-ring focus-within:ring-2 focus-within:ring-border-focus-ring/20 focus-within:bg-background-primary-default",
+    "transition-all duration-150 ease-in-out",
   ].join(" "),
 
   fieldSize: {
-    medium: "p-2",                // 8px all sides → h auto = 36
-    small:  "h-8 px-1.5 py-2",    // 32 / 6 / 8
+    medium: "h-10 px-3 py-1.5",
+    small:  "h-8 px-2.5 py-1",
   },
 
-  // When a leadingAddon is present (Phone basic): tighten left padding.
   fieldWithAddonSize: {
-    medium: "h-9 ps-1 pe-2 py-2", // 36 / 4 / 8 / 8
-    small:  "h-8 ps-1 pe-1.5 py-2",
+    medium: "h-10 ps-1.5 pe-3 py-1.5",
+    small:  "h-8 ps-1 pe-2 py-1",
   },
 
   content: "flex w-full items-center gap-2 min-w-0",
-  leftSection: "flex flex-1 items-center gap-0.5 min-w-0",
+  leftSection: "flex flex-1 items-center gap-2 min-w-0",
 
   input: [
     "min-w-0 flex-1 bg-transparent border-0 outline-none p-0 m-0",
-    "font-sans text-body-regular text-text-primary",
+    "font-sans text-body-small text-text-primary",
     "placeholder:text-text-tertiary",
-    "focus:placeholder:text-text-primary",
+    "focus:placeholder:text-text-tertiary/70",
     "disabled:text-input-disabled-text disabled:placeholder:text-input-disabled-text",
     "disabled:cursor-not-allowed",
     "aria-invalid:placeholder:text-text-error-placeholder",
   ].join(" "),
 
-  icon: "size-5 shrink-0",
+  icon: "size-4 text-text-tertiary shrink-0",
 });
 
 export function InputBase({
@@ -180,28 +146,15 @@ export function InputBase({
   return (
     <AriaGroup
       ref={groupRef}
-      className={({ isFocusWithin, isHovered, isDisabled, isInvalid }) =>
+      className={({ isDisabled, isInvalid }) =>
         cx(
           inputStyles.field,
           hasAddon
             ? inputStyles.fieldWithAddonSize[size]
             : inputStyles.fieldSize[size],
-          // Hover: idle, no focus, no disabled, no invalid
-          isHovered &&
-            !isFocusWithin &&
-            !isDisabled &&
-            !isInvalid &&
-            "ring-border-button-hover",
-          // Focus wins over hover
-          isFocusWithin &&
-            !isDisabled &&
-            !isInvalid &&
-            "ring-border-button-active",
-          // Disabled
           isDisabled &&
-            "bg-input-disabled-background text-input-disabled-foreground",
-          // Invalid
-          isInvalid && "bg-background-tertiary-error text-foreground-icon-error",
+            "bg-input-disabled-background text-input-disabled-foreground cursor-not-allowed opacity-60",
+          isInvalid && "border-red-500 ring-2 ring-red-500/20",
           ctx.fieldClassName,
           fieldClassName,
         )
@@ -217,8 +170,7 @@ export function InputBase({
           <AriaInput
             ref={ref}
             {...inputProps}
-            // Align to the field's start even when email/URL values use LTR.
-            className={cx(inputStyles.input, direction === "rtl" ? "pr-1 text-right" : "pl-1 text-left", ctx.inputClassName, className)}
+            className={cx(inputStyles.input, direction === "rtl" ? "text-right" : "text-left", ctx.inputClassName, className)}
           />
         </div>
         {Trailing ? (
@@ -248,11 +200,8 @@ export interface InputProps
     > {
   label?: ReactNode;
   hint?: ReactNode;
-  /** Show an info icon next to the label. Replace with tooltip when Tooltip lands. */
   tooltip?: boolean | string;
   placeholder?: string;
-  /** Direction of the editable value, independent of the label and adornments.
-   * Email, URL and telephone inputs default to LTR inside RTL forms. */
   inputDir?: "ltr" | "rtl" | "auto";
 }
 
@@ -275,35 +224,29 @@ export function Input({
     <TextField
       {...textFieldProps}
       className={className}
-      // Don't clobber an explicit aria-label; fall back to the placeholder
-      // only for unlabelled fields that don't provide one.
       aria-label={
         textFieldProps["aria-label"] ??
-        (!label && typeof placeholder === "string" ? placeholder : undefined)
+        (label ? undefined : (placeholder || "Input"))
       }
     >
-      {({ isRequired, isInvalid }) => (
+      {({ isRequired }) => (
         <>
           {label && (
-            <Label
-              isRequired={isRequired}
-              isInvalid={isInvalid}
-              tooltip={tooltip}
-            >
+            <Label isRequired={isRequired} tooltip={tooltip}>
               {label}
             </Label>
           )}
           <InputBase
-            dir={inputDir ?? (["email", "url", "tel"].includes(textFieldProps.type ?? "") ? "ltr" : undefined)}
             ref={ref}
             groupRef={groupRef}
             placeholder={placeholder}
+            dir={inputDir}
             leadingIcon={leadingIcon}
             trailingIcon={trailingIcon}
             leadingAddon={leadingAddon}
             fieldClassName={fieldClassName}
           />
-          {hint && <HintText isInvalid={isInvalid}>{hint}</HintText>}
+          {hint && <HintText>{hint}</HintText>}
         </>
       )}
     </TextField>

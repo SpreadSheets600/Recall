@@ -13,6 +13,7 @@
     "@remixicon/react": "^4.9.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@tanstack/react-table": "^8.21.3",
+    "lucide-react": "^1.52.0",
     "motion": "^12.43.0",
     "react": "^19.0.0",
     "react-aria-components": "^1.21.1",

@@ -58,7 +58,10 @@ def _load_model(name: str):
     if _model is None or _model_name != name:
         from sentence_transformers import SentenceTransformer
 
-        _model = SentenceTransformer(name, trust_remote_code=False)
+        try:
+            _model = SentenceTransformer(name, trust_remote_code=False, local_files_only=True)
+        except Exception:
+            _model = SentenceTransformer(name, trust_remote_code=False)
         _model_name = name
     return _model
 

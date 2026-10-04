@@ -8,42 +8,21 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { Group as AriaGroup, TextArea as AriaTextArea } from "react-aria-components";
+import {
+  Group as AriaGroup,
+  TextArea as AriaTextArea,
+} from "react-aria-components";
 import type { TextAreaProps as AriaTextAreaProps } from "react-aria-components";
-import { HintText } from "@/components/base/input/hint-text";
-import { Label } from "@/components/base/input/label";
 import {
   TextField,
   TextFieldContext,
-  type InputSize,
   type TextFieldProps,
-} from "@/components/base/input/input";
+} from "../input/input";
+import { Label } from "../input/label";
+import { HintText } from "../input/hint-text";
 import { cx, sortCx } from "@/utils/cx";
 
-/**
- * Multiline sibling of `Input` — same React Aria plumbing, same field shell,
- * same tokens. It reuses `Input`'s `TextField`, `Label` and `HintText`, so a
- * textarea sitting next to an input in a form lines up to the pixel.
- *
- * Architecture (mirrors input.tsx):
- *
- *   TextareaBase — the styled shell. Renders <AriaGroup> + <AriaTextArea>.
- *                  State (hover / focus / disabled / invalid) arrives as
- *                  render-prop booleans from Aria.
- *   Textarea     — opinionated composition: TextField → Label → TextareaBase
- *                  → HintText (+ optional character counter). The component
- *                  most consumers use.
- *
- * What a textarea adds over the single-line field:
- *   - `rows` sets the resting height (3 lines by default)
- *   - `autoResize` grows the field a line at a time up to `maxRows`, then
- *     scrolls — the pattern the composer prompt uses
- *   - `resize` exposes the native grab handle, off when `autoResize` is on
- *   - `showCount` pairs with `maxLength` for the counter settings pages want
- */
-
-type TextareaSize = InputSize;
-
+export type TextareaSize = "medium" | "small";
 export type TextareaResize = "none" | "vertical";
 
 /* -------------------------------------------------------------------------- */
@@ -54,43 +33,34 @@ export interface TextareaBaseProps
   extends Omit<AriaTextAreaProps, "size" | "className" | "rows"> {
   size?: TextareaSize;
   className?: string;
-  /** Resting height, in lines. Also the floor when `autoResize` is on. */
   rows?: number;
-  /** Grow with the content instead of scrolling at `rows`. */
   autoResize?: boolean;
-  /** Ceiling for `autoResize`, in lines. Past it the field scrolls. */
   maxRows?: number;
-  /** Native resize handle. Ignored (forced `none`) while `autoResize` is on. */
   resize?: TextareaResize;
-  /** Class for the field shell. */
   fieldClassName?: string;
-  /** Ref to the <textarea> element. */
   ref?: Ref<HTMLTextAreaElement>;
-  /** Ref to the field shell wrapper. */
   groupRef?: Ref<HTMLDivElement>;
 }
 
 const textareaStyles = sortCx({
   field: [
     "relative flex w-full flex-col",
-    "rounded-2lg",
-    "bg-background-tertiary-default text-foreground-icon-tertiary",
-    "ring-2 ring-inset ring-transparent",
-    "transition-[background-color,box-shadow,color] duration-[var(--input-transition-ms)] ease",
+    "rounded-xl border border-border-button-default bg-background-secondary-default/50 text-foreground-icon-tertiary shadow-2xs",
+    "hover:border-border-button-hover",
+    "focus-within:border-border-focus-ring focus-within:ring-2 focus-within:ring-border-focus-ring/20 focus-within:bg-background-primary-default",
+    "transition-all duration-150 ease-in-out",
   ].join(" "),
 
-  // Matches Input's insets, so a stacked input and textarea share one edge:
-  // 8px shell + 4px on the control = 12px to the text (10px at `small`).
   fieldSize: {
-    medium: "p-2",
-    small: "px-1.5 py-2",
+    medium: "p-3",
+    small: "px-2.5 py-2",
   },
 
   textarea: [
-    "block w-full min-w-0 bg-transparent border-0 outline-none m-0 p-0 px-1",
-    "font-sans text-body-regular text-text-primary",
+    "block w-full min-w-0 bg-transparent border-0 outline-none m-0 p-0",
+    "font-sans text-body-small text-text-primary",
     "placeholder:text-text-tertiary",
-    "focus:placeholder:text-text-primary",
+    "focus:placeholder:text-text-tertiary/70",
     "disabled:text-input-disabled-text disabled:placeholder:text-input-disabled-text",
     "disabled:cursor-not-allowed",
     "aria-invalid:placeholder:text-text-error-placeholder",
@@ -101,11 +71,10 @@ const textareaStyles = sortCx({
     vertical: "resize-y",
   },
 
-  footer: "flex w-full items-start justify-between gap-3",
+  footer: "flex w-full items-start justify-between gap-3 mt-1.5",
   count: "ms-auto shrink-0 pt-px text-caption-1-medium text-text-tertiary tabular-nums",
 });
 
-/** Fallback line box for `text-body-regular` (14/20) before styles resolve. */
 const FALLBACK_LINE_HEIGHT = 20;
 
 export function TextareaBase({
@@ -131,9 +100,6 @@ export function TextareaBase({
     else if (ref) (ref as { current: HTMLTextAreaElement | null }).current = node;
   };
 
-  // Measure from zero so the field shrinks back as well as grows. Reading the
-  // computed line box keeps the floor and ceiling honest when a consumer
-  // overrides the type scale through `className`.
   const fit = () => {
     const field = innerRef.current;
     if (!field) return;
@@ -153,34 +119,18 @@ export function TextareaBase({
     field.style.overflowY = next > ceiling ? "auto" : "hidden";
   };
 
-  // No dependency list: typing on an uncontrolled field re-renders nothing,
-  // so `onInput` handles keystrokes and this catches every other reason the
-  // value moved (a controlled parent, a form reset, an autofill).
   useLayoutEffect(fit);
 
   return (
     <AriaGroup
       ref={groupRef}
-      className={({ isFocusWithin, isHovered, isDisabled, isInvalid }) =>
+      className={({ isDisabled, isInvalid }) =>
         cx(
           textareaStyles.field,
           textareaStyles.fieldSize[size],
-          // Hover: idle, no focus, no disabled, no invalid
-          isHovered &&
-            !isFocusWithin &&
-            !isDisabled &&
-            !isInvalid &&
-            "ring-border-button-hover",
-          // Focus wins over hover
-          isFocusWithin &&
-            !isDisabled &&
-            !isInvalid &&
-            "ring-border-button-active",
-          // Disabled
           isDisabled &&
-            "bg-input-disabled-background text-input-disabled-foreground",
-          // Invalid
-          isInvalid && "bg-background-tertiary-error text-foreground-icon-error",
+            "bg-input-disabled-background text-input-disabled-foreground cursor-not-allowed opacity-60",
+          isInvalid && "border-red-500 ring-2 ring-red-500/20",
           ctx.fieldClassName,
           fieldClassName,
         )
@@ -225,12 +175,9 @@ export interface TextareaProps
     > {
   label?: ReactNode;
   hint?: ReactNode;
-  /** Show an info icon next to the label. Replace with tooltip when Tooltip lands. */
   tooltip?: boolean | string;
   placeholder?: string;
-  /** Hard character limit, enforced by the browser. */
   maxLength?: number;
-  /** Show the character counter under the field (`12/280` with `maxLength`). */
   showCount?: boolean;
 }
 
@@ -254,9 +201,6 @@ export function Textarea({
   onChange,
   ...textFieldProps
 }: TextareaProps) {
-  // The counter needs the value, and React Aria's render props don't carry it.
-  // Controlled fields read straight from the prop; uncontrolled ones keep the
-  // length here so a keystroke re-renders the counter and nothing else.
   const [typedLength, setTypedLength] = useState(() => (defaultValue ?? "").length);
   const count = value !== undefined ? value.length : typedLength;
 
@@ -270,8 +214,6 @@ export function Textarea({
         onChange?.(next);
       }}
       className={className}
-      // Don't clobber an explicit aria-label; fall back to the placeholder
-      // only for unlabelled fields that don't provide one.
       aria-label={
         textFieldProps["aria-label"] ??
         (!label && typeof placeholder === "string" ? placeholder : undefined)

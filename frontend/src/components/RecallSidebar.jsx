@@ -1,90 +1,122 @@
-import { Badge } from "@/components/base/badges/badge";
+import {
+  Cpu,
+  FolderArchive,
+  LayoutDashboard,
+  Network,
+  RotateCw,
+  Search,
+  Settings,
+  UploadCloud,
+} from "lucide-react";
 import { Button } from "@/components/base/buttons/button";
-import { Divider } from "@/components/base/divider/divider";
-import { ThemeToggle } from "@/components/application/theme/theme-toggle";
 
-export const TABS = ["search", "upload", "library", "models"];
-
-export function RecallSidebar({ tab, onNav, counts, onRebuild, icons }) {
-  const { SearchIcon, UploadIcon, LibraryIcon, ModelsIcon } = icons;
+export function RecallSidebar({
+  tab,
+  onNav,
+  counts,
+  onRebuild,
+  collapsed = false,
+}) {
   const items = [
-    { key: "search", label: "Search", Icon: SearchIcon },
-    { key: "upload", label: "Upload", Icon: UploadIcon },
-    {
-      key: "library",
-      label: "Library",
-      Icon: LibraryIcon,
-      badge: counts ? String(counts.total) : undefined,
-    },
-    { key: "models", label: "Models", Icon: ModelsIcon },
+    { key: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+    { key: "search", label: "Search", Icon: Search },
+    { key: "graph", label: "Knowledge Graph", Icon: Network },
+    { key: "upload", label: "Upload & Ingest", Icon: UploadCloud },
+    { key: "library", label: "Library", Icon: FolderArchive },
+    { key: "models", label: "Models & AI", Icon: Cpu },
+    { key: "settings", label: "Settings", Icon: Settings },
   ];
 
   return (
     <aside
-      aria-label="Primary"
-      className="flex h-full w-[248px] shrink-0 flex-col gap-1 overflow-y-auto rounded-3xl border border-border-card-default bg-background-primary-default p-3 shadow-xs"
+      aria-label="Primary navigation"
+      style={{ width: collapsed ? 68 : 240 }}
+      className="fixed top-0 bottom-0 left-0 z-30 flex flex-col border-r border-border-button-default bg-background-primary-default transition-[width] duration-200 ease-in-out select-none overflow-hidden"
     >
-      <div className="flex items-center gap-2 px-2 py-1">
-        <span aria-hidden className="text-headline-medium text-text-primary">
-          ◈
-        </span>
-        <span className="text-headline-medium text-text-primary">Recall</span>
+      {/* Brand header */}
+      <div className="flex h-16 items-center px-4 border-b border-border-button-default shrink-0">
+        {!collapsed ? (
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent-500 font-bold text-text-white shadow-xs">
+              R
+            </div>
+            <div className="flex flex-col truncate">
+              <span className="text-headline-medium font-bold text-text-primary tracking-tight leading-none">
+                Recall
+              </span>
+              <span className="text-caption-2-medium text-text-tertiary mt-1">
+                Local-First Memory
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-xl bg-accent-500 font-bold text-text-white shadow-xs">
+            R
+          </div>
+        )}
       </div>
 
-      <nav aria-label="Sections" className="flex flex-col gap-1">
-        {items.map(({ key, label, Icon, badge }) => (
-          <div key={key} className="flex items-center gap-1">
-            <Button
-              variant={tab === key ? "secondary" : "ghost"}
-              onClick={() => onNav(key)}
-              aria-current={tab === key ? "page" : undefined}
-              leadingIcon={Icon}
-              className="w-full justify-start"
+      {/* Nav items */}
+      <nav className="flex-1 space-y-1 p-2.5 overflow-y-auto overflow-x-hidden">
+        {items.map((it) => {
+          const active = tab === it.key;
+          const Icon = it.Icon;
+          return (
+            <button
+              key={it.key}
+              type="button"
+              onClick={() => onNav(it.key)}
+              title={collapsed ? it.label : undefined}
+              className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-body-medium font-medium transition-all ${
+                active
+                  ? "bg-accent-500 text-text-white shadow-xs"
+                  : "text-text-secondary hover:bg-background-secondary-default hover:text-text-primary"
+              } ${collapsed ? "justify-center px-0" : ""}`}
             >
-              {label}
-            </Button>
-            {badge !== undefined && (
-              <Badge color={tab === key ? "primary" : "neutral"}>{badge}</Badge>
-            )}
-          </div>
-        ))}
+              <Icon
+                className={`h-5 w-5 shrink-0 transition-colors ${
+                  active ? "text-text-white" : "text-text-tertiary group-hover:text-text-primary"
+                }`}
+              />
+              {!collapsed && (
+                <span className="truncate flex-1 text-left">{it.label}</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
-      <Divider />
-
-      <div className="px-2">
-        <p className="text-caption-1-semibold uppercase tracking-wide text-text-tertiary">
-          Index
-        </p>
-        {counts ? (
-          <dl className="mt-1 flex flex-col gap-0.5 text-body-regular text-text-secondary">
-            <div className="flex justify-between">
-              <dt>memories</dt>
-              <dd className="text-text-primary">{counts.total}</dd>
+      {/* Footer stats & Rebuild button */}
+      <div className="p-3 border-t border-border-button-default flex flex-col gap-2 shrink-0">
+        {!collapsed ? (
+          <>
+            <div className="rounded-xl bg-background-secondary-default/70 p-2.5 flex items-center justify-between text-caption-regular">
+              <span className="text-text-tertiary">Indexed Status</span>
+              <span className="text-text-primary font-semibold">
+                {counts?.vectors ?? 0} vectors
+              </span>
             </div>
-            <div className="flex justify-between">
-              <dt>vectors</dt>
-              <dd className="text-text-primary">{counts.vectors}</dd>
-            </div>
-          </dl>
+            <Button
+              variant="secondary"
+              size="sm"
+              leadingIcon={RotateCw}
+              onClick={onRebuild}
+              className="w-full justify-center"
+            >
+              Sync & Rebuild
+            </Button>
+          </>
         ) : (
-          <p className="text-body-regular text-text-tertiary">Loading…</p>
+          <button
+            type="button"
+            onClick={onRebuild}
+            title="Sync & Rebuild Vectors"
+            className="flex h-9 w-9 mx-auto items-center justify-center rounded-xl text-text-secondary hover:bg-background-secondary-default hover:text-text-primary transition-colors"
+          >
+            <RotateCw className="h-4 w-4" />
+          </button>
         )}
-        <div className="mt-2">
-          <Button variant="secondary" size="xs" onClick={onRebuild}>
-            Rebuild index
-          </Button>
-        </div>
       </div>
-
-      <div className="flex-1" />
-
-      <div className="px-2">
-        <p className="text-caption-regular text-text-tertiary">
-          AI enriches at ingest. Search stays fast and offline.
-        </p>
-      </div>
-      <ThemeToggle />
     </aside>
   );
 }

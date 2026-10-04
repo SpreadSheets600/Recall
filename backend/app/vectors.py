@@ -21,6 +21,13 @@ class VectorIndex:
     def using_faiss(self):
         return self._index is not None
 
+    def reset(self):
+        self._ids = []
+        self._vecs = np.zeros((0, self.dim), dtype=np.float32)
+        if self._faiss is not None:
+            base = self._faiss.IndexFlatIP(self.dim)
+            self._index = self._faiss.IndexIDMap2(base)
+
     def add(self, ids: list, vecs):
         import numpy as np
 
@@ -56,11 +63,7 @@ class VectorIndex:
     def rebuild(self, ids: list, vecs):
         import numpy as np
 
-        self._ids = []
-        self._vecs = np.zeros((0, self.dim), dtype=np.float32)
-        if self._faiss is not None:
-            base = self._faiss.IndexFlatIP(self.dim)
-            self._index = self._faiss.IndexIDMap2(base)
+        self.reset()
         if ids:
             self.add(ids, np.asarray(vecs, dtype=np.float32))
 

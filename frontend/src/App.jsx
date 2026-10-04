@@ -1,32 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  RiImageLine,
-  RiSearchLine,
-  RiSettings3Line,
-  RiUploadCloud2Line,
-} from "@remixicon/react";
-import { ThemeToggle } from "@/components/application/theme/theme-toggle";
-import { api } from "./api.js";
+import { api, fetchStats } from "./api.js";
+import { RecallNavbar } from "./components/RecallNavbar.jsx";
+import { RecallSidebar } from "./components/RecallSidebar.jsx";
+import { MemoryDialog } from "./components/MemoryDialog.jsx";
+import { DashboardPage } from "./pages/DashboardPage.jsx";
 import { SearchPage } from "./pages/SearchPage.jsx";
 import { UploadPage } from "./pages/UploadPage.jsx";
 import { LibraryPage } from "./pages/LibraryPage.jsx";
+import { KnowledgeGraphPage } from "./pages/KnowledgeGraphPage.jsx";
 import { ModelsPage } from "./pages/ModelsPage.jsx";
-import { MemoryDialog } from "./components/MemoryDialog.jsx";
-import { RecallSidebar } from "./components/RecallSidebar.jsx";
-
-const ICONS = {
-  SearchIcon: RiSearchLine,
-  UploadIcon: RiUploadCloud2Line,
-  LibraryIcon: RiImageLine,
-  ModelsIcon: RiSettings3Line,
-};
+import { SettingsPage } from "./pages/SettingsPage.jsx";
 
 export function App() {
-  const [tab, setTab] = useState("search");
+  const [tab, setTab] = useState("dashboard");
   const [detailId, setDetailId] = useState(null);
   const [toast, setToast] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [lastDeletedId, setLastDeletedId] = useState(null);
   const [counts, setCounts] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("recall_sidebar_collapsed") === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -41,10 +40,26 @@ export function App() {
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
-    api("/api/stats")
+    fetchStats()
       .then((s) => setCounts(s))
       .catch(() => setCounts(null));
   }, [refreshKey]);
+
+  function handleToggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("recall_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }
+
+  function handleGlobalSearchSubmit() {
+    if (tab !== "search") {
+      setTab("search");
+    }
+  }
 
   async function rebuild() {
     try {
@@ -57,62 +72,110 @@ export function App() {
   }
 
   return (
-    <div className="flex min-h-screen gap-3 bg-background-secondary-default p-3">
-      <div className="sticky top-3 h-[calc(100vh-24px)] shrink-0">
-        <RecallSidebar
+    <div className="min-h-screen bg-background-secondary-default text-text-primary antialiased flex flex-col">
+      {/* Docked Collapsible Sidebar */}
+      <RecallSidebar
+        tab={tab}
+        onNav={setTab}
+        counts={counts}
+        onRebuild={rebuild}
+        collapsed={sidebarCollapsed}
+      />
+
+      {/* Main Content Area */}
+      <div
+        style={{ marginLeft: sidebarCollapsed ? 68 : 240 }}
+        className="flex-1 min-w-0 flex flex-col transition-[margin-left] duration-200 ease-in-out"
+      >
+        <RecallNavbar
           tab={tab}
           onNav={setTab}
           counts={counts}
-          onRebuild={rebuild}
-          icons={ICONS}
+          onToggleSidebar={handleToggleSidebar}
+          sidebarCollapsed={sidebarCollapsed}
+          globalSearchQuery={globalSearchQuery}
+          onGlobalSearchChange={(q) => {
+            setGlobalSearchQuery(q);
+            if (tab !== "search" && q) {
+              setTab("search");
+            }
+          }}
+          onGlobalSearchSubmit={handleGlobalSearchSubmit}
         />
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <header className="flex items-center gap-3 rounded-3xl border border-border-card-default bg-background-primary-default px-5 py-3 shadow-xs">
-          <span className="text-headline-medium text-text-primary">
-            {tab === "search" && "Search"}
-            {tab === "upload" && "Upload"}
-            {tab === "library" && "Library"}
-            {tab === "models" && "Models"}
-          </span>
-          <span className="text-caption-regular text-text-tertiary">
-            private local memory · stays on this device
-          </span>
-          <span className="flex-1" />
-          <span className="text-caption-regular text-text-tertiary">
-            {counts ? `${counts.total} memories · ${counts.vectors} vectors` : "…"}
-          </span>
-          <ThemeToggle />
-        </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 pb-6">
-          {tab === "search" && <SearchPage onOpen={setDetailId} />}
+
+        <main className="w-full max-w-7xl mx-auto p-6 lg:p-8 flex-1 space-y-6">
+          {tab === "dashboard" && (
+            <DashboardPage
+              counts={counts}
+              onNav={setTab}
+              onOpen={setDetailId}
+              onToast={showToast}
+              onRefresh={refresh}
+              lastDeletedId={lastDeletedId}
+            />
+          )}
+
+          {tab === "search" && (
+            <SearchPage
+              onOpen={setDetailId}
+              initialQuery={globalSearchQuery}
+              lastDeletedId={lastDeletedId}
+              onChanged={refresh}
+            />
+          )}
+
+          {tab === "graph" && (
+            <KnowledgeGraphPage
+              onOpen={setDetailId}
+              onSearchNav={(term) => {
+                setGlobalSearchQuery(term);
+                setTab("search");
+              }}
+              onToast={showToast}
+            />
+          )}
+
           {tab === "upload" && (
             <UploadPage onToast={showToast} onChanged={refresh} />
           )}
+
           {tab === "library" && (
             <LibraryPage
               onOpen={setDetailId}
               onToast={showToast}
               refreshKey={refreshKey}
+              lastDeletedId={lastDeletedId}
+              onChanged={refresh}
             />
           )}
+
           {tab === "models" && <ModelsPage onToast={showToast} />}
+
+          {tab === "settings" && (
+            <SettingsPage onToast={showToast} onRefresh={refresh} />
+          )}
         </main>
       </div>
+
+      {/* Memory Detail Dialog */}
       <MemoryDialog
         id={detailId}
         onClose={() => setDetailId(null)}
-        onDeleted={() => {
+        onDeleted={(deletedId) => {
+          if (deletedId) setLastDeletedId(deletedId);
           setDetailId(null);
+          showToast("Memory deleted");
           refresh();
         }}
         onOpen={setDetailId}
         onToast={showToast}
       />
+
+      {/* Global Toast */}
       {toast && (
         <div
           role="status"
-          className="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-background-inverse-default px-5 py-2.5 text-body-medium text-text-white shadow-lg"
+          className="fixed bottom-6 right-6 z-50 rounded-xl bg-background-primary-default px-4 py-2.5 text-body-small text-text-primary shadow-lg border border-border-button-default animate-in fade-in slide-in-from-bottom-2"
         >
           {toast}
         </div>

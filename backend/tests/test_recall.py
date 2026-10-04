@@ -270,3 +270,190 @@ def test_rebuild_reembeds_on_dim_change(tmpdb):
     finally:
         config.EMBED_DIM = old_dim
         vectors.reset_index(old_dim)
+
+def test_settings_api(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        r = c.get("/api/settings")
+        assert r.status_code == 200
+        settings = r.json()
+        assert "w_dense" in settings
+        assert "w_bm25" in settings
+
+        update_resp = c.post("/api/settings", json={"w_dense": 0.8, "ocr_enabled": False})
+        assert update_resp.status_code == 200
+        assert update_resp.json()["w_dense"] == 0.8
+        assert update_resp.json()["ocr_enabled"] is False
+    finally:
+        config.DB_PATH = old_db
+
+
+def test_tools_optimize_and_benchmark(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        add(tmpdb, mem_type="text", title="sample", content="benchmark sample test")
+
+        r_opt = c.post("/api/tools/optimize")
+        assert r_opt.status_code == 200
+        assert r_opt.json()["status"] == "success"
+
+        r_bench = c.post("/api/tools/benchmark")
+        assert r_bench.status_code == 200
+        assert r_bench.json()["status"] == "healthy"
+        assert "db_read_ms" in r_bench.json()
+    finally:
+        config.DB_PATH = old_db
+
+
+def test_patch_and_batch_delete(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        m1, _ = add(tmpdb, mem_type="text", title="original title", content="original content")
+        m2, _ = add(tmpdb, mem_type="text", title="second note", content="second content")
+
+        patch_resp = c.patch(f"/api/memories/{m1['id']}", json={"title": "updated title", "tags": "customtag"})
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["title"] == "updated title"
+        assert patch_resp.json()["tags"] == "customtag"
+
+        # Search should find the updated title
+        search_resp = c.post("/api/search", json={"query": "updated title"})
+        assert search_resp.status_code == 200
+        assert search_resp.json()["count"] >= 1
+
+        # Batch delete
+        del_resp = c.post("/api/memories/batch-delete", json={"ids": [m1["id"], m2["id"]]})
+        assert del_resp.status_code == 200
+        assert del_resp.json()["deleted"] == 2
+        assert c.get(f"/api/memories/{m1['id']}").status_code == 404
+    finally:
+        config.DB_PATH = old_db
+
+
+def test_export_and_import(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        add(tmpdb, mem_type="text", title="exp1", content="exportable memory content")
+
+        exp_resp = c.post("/api/tools/export")
+        assert exp_resp.status_code == 200
+        data = exp_resp.json()
+        assert data["count"] >= 1
+
+        # Import test
+        imp_resp = c.post("/api/tools/import", json={"memories": [
+            {"type": "text", "title": "imported note", "content": "freshly imported content", "tags": "imported"}
+        ]})
+        assert imp_resp.status_code == 200
+        assert imp_resp.json()["imported"] == 1
+    finally:
+        config.DB_PATH = old_db
+
+
+
+def test_extension_ingest_dwell_and_search_filter(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        # 1. Ingest via extension endpoint
+        payload = {
+            "url": "https://docs.python.org/3/library/sqlite3.html",
+            "title": "sqlite3 — DB-API 2.0 interface for SQLite databases",
+            "content": "SQLite is a C library that provides a lightweight disk-based database",
+            "markdown": "# SQLite 3 documentation and examples",
+            "description": "Official documentation for Python sqlite3 module",
+            "domain": "docs.python.org",
+            "website_type": "docs",
+            "dwell_time": 45,
+            "tags": "python, sqlite, database",
+        }
+        resp = c.post("/api/extension/ingest", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["created"] is True
+        mid = data["id"]
+
+        # 2. Update dwell time via heartbeat
+        dwell_resp = c.post("/api/extension/dwell", json={
+            "url": "https://docs.python.org/3/library/sqlite3.html",
+            "dwell_time": 180,
+        })
+        assert dwell_resp.status_code == 200
+        assert dwell_resp.json()["dwell_time"] == 180
+
+        # Verify stored memory
+        mem_resp = c.get(f"/api/memories/{mid}")
+        assert mem_resp.status_code == 200
+        mem = mem_resp.json()
+        assert mem["website_type"] == "docs"
+        assert mem["dwell_time"] == 180
+
+        # 3. Search with website_type and min_dwell filter
+        s_resp = c.post("/api/search", json={
+            "query": "sqlite lightweight",
+            "website_type": "docs",
+            "min_dwell": 60,
+        })
+        assert s_resp.status_code == 200
+        results = s_resp.json()["results"]
+        assert len(results) >= 1
+        assert results[0]["id"] == mid
+        assert "website-type" in results[0]["match"] or "docs" in results[0]["match"]
+    finally:
+        config.DB_PATH = old_db
+
+
+def test_knowledge_graph_endpoint(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        add(tmpdb, mem_type="text", title="Machine Learning with PyTorch",
+            content="Deep neural networks trained with backpropagation", tags="ai, pytorch, ml")
+        add(tmpdb, mem_type="text", title="FastAPI REST Microservice",
+            content="Building high performance APIs with Python and Pydantic", tags="python, api, fastapi")
+
+        resp = c.get("/api/graph")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "nodes" in data
+        assert "links" in data
+        assert "stats" in data
+        assert len(data["nodes"]) >= 2
+        assert any(n["type"] == "term" for n in data["nodes"])
+        assert any(n["type"] == "memory" for n in data["nodes"])
+    finally:
+        config.DB_PATH = old_db

@@ -11,7 +11,7 @@ function Block({ title, children }) {
   return (
     <div>
       <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">{title}</h3>
-      <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border-card-default bg-background-secondary-default p-3 text-body-regular text-text-primary">
+      <div className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border-button-default bg-background-secondary-default p-3 text-body-regular text-text-primary">
         {children}
       </div>
     </div>
@@ -20,10 +20,12 @@ function Block({ title, children }) {
 
 export function MemoryDialog({ id, onClose, onDeleted, onOpen, onToast }) {
   const [m, setM] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (id == null) return;
     setM(null);
+    setIsDeleting(false);
     api(`/api/memories/${id}`)
       .then(setM)
       .catch(() => onToast("Could not load memory"));
@@ -32,11 +34,14 @@ export function MemoryDialog({ id, onClose, onDeleted, onOpen, onToast }) {
 
   async function remove() {
     if (!window.confirm("Delete this memory?")) return;
+    setIsDeleting(true);
+    const targetId = id;
     try {
-      await api(`/api/memories/${id}`, { method: "DELETE" });
-      onToast("Deleted");
-      onDeleted();
+      await api(`/api/memories/${targetId}`, { method: "DELETE" });
+      onToast("Deleted memory");
+      onDeleted(targetId);
     } catch (e) {
+      setIsDeleting(false);
       onToast("Delete failed");
     }
   }
@@ -54,7 +59,7 @@ export function MemoryDialog({ id, onClose, onDeleted, onOpen, onToast }) {
       onOpenChange={(open) => { if (!open) onClose(); }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
-      <Modal className="max-h-[88vh] w-[92vw] max-w-2xl overflow-auto rounded-3lg border border-border-card-default bg-background-primary-default p-6 shadow-lg outline-none">
+      <Modal className="max-h-[88vh] w-[92vw] max-w-2xl overflow-auto rounded-3xl border border-border-button-default bg-background-primary-default p-6 shadow-lg outline-none">
         <Dialog aria-label="Memory detail">
           <div className="mb-3 flex items-start justify-between gap-2">
             <h2 className="text-title-3-medium text-text-primary">{m?.title || "Loading…"}</h2>
@@ -64,7 +69,11 @@ export function MemoryDialog({ id, onClose, onDeleted, onOpen, onToast }) {
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap gap-1">
                 {m.type && <Badge color="neutral">{m.type}</Badge>}
+                {m.website_type && <Badge color="primary">{m.website_type}</Badge>}
                 {m.domain && <Badge color="neutral">{m.domain}</Badge>}
+                {m.dwell_time > 0 && (
+                  <Badge color="neutral">⏱ {m.dwell_time}s spent</Badge>
+                )}
                 {(m.match || []).map((x) => (
                   <Chip key={x} color="blue">
                     {x}
@@ -73,74 +82,79 @@ export function MemoryDialog({ id, onClose, onDeleted, onOpen, onToast }) {
               </div>
               {m.type === "image" && (
                 <img
-                  className="max-h-80 w-full rounded-lg border border-border-card-default object-contain"
+                  className="max-h-96 w-full rounded-2xl border border-border-button-default object-contain"
                   src={`/api/memories/${m.id}/file`}
-                  alt=""
+                  alt={m.title || "memory image"}
                 />
               )}
-              {m.description && <Block title="AI description">{m.description}</Block>}
-              <Block title="Extracted content">{(m.content || "—").slice(0, 4000)}</Block>
-              {m.ocr_text && <Block title="OCR text">{m.ocr_text.slice(0, 2000)}</Block>}
-              <div>
-                <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">
-                  Topics &amp; tags
-                </h3>
-                <div className="flex flex-wrap gap-1">
-                  {tagList(m.tags).length > 0
-                    ? tagList(m.tags).map((t) => <Chip key={t} color="neutral">#{t}</Chip>)
-                    : <span className="text-body-regular text-text-tertiary">none yet</span>}
-                </div>
-              </div>
-              <div>
-                <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">Metadata</h3>
-                <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-body-regular">
-                  <dt className="text-text-tertiary">source</dt><dd className="break-words text-text-primary">{m.source || "—"}</dd>
-                  <dt className="text-text-tertiary">file</dt><dd className="break-words text-text-primary">{m.path || "—"}</dd>
-                  <dt className="text-text-tertiary">size</dt><dd className="text-text-primary">{fmtKB(m.file_size)}</dd>
-                  {m.width && (<><dt className="text-text-tertiary">dimensions</dt><dd className="text-text-primary">{m.width}×{m.height}</dd></>)}
-                  <dt className="text-text-tertiary">saved</dt><dd className="text-text-primary">{fmtDate(m.created_at)}</dd>
-                  <dt className="text-text-tertiary">status</dt><dd className="text-text-primary">{m.status || "indexed"}</dd>
-                </dl>
-              </div>
-              {Object.keys(exif).length > 0 && (
+              {m.caption && <Block title="AI Caption">{m.caption}</Block>}
+              {m.ocr_text && <Block title="Extracted Text (OCR)">{m.ocr_text}</Block>}
+              {m.content && <Block title="Extracted Content">{m.content}</Block>}
+              {tagList(m.tags).length > 0 && (
                 <div>
-                  <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">EXIF</h3>
-                  <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 text-body-regular">
-                    {Object.entries(exif).map(([k, v]) => (
-                      <span key={k} className="contents">
-                        <dt className="text-text-tertiary">{k}</dt>
-                        <dd className="break-words text-text-primary">{String(v)}</dd>
-                      </span>
+                  <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">
+                    Topics &amp; Tags
+                  </h3>
+                  <div className="flex flex-wrap gap-1">
+                    {tagList(m.tags).map((t) => (
+                      <Chip key={t} color="neutral">
+                        #{t}
+                      </Chip>
                     ))}
-                  </dl>
+                  </div>
                 </div>
               )}
-              {(m.related || []).length > 0 && (
+              <div className="grid grid-cols-2 gap-2 text-caption-regular text-text-secondary">
+                <div>Source: {m.source || "local"}</div>
+                <div>Created: {fmtDate(m.created_at)}</div>
+                {m.file_size ? <div>Size: {fmtKB(m.file_size)}</div> : null}
+                {m.mime_type ? <div>MIME: {m.mime_type}</div> : null}
+                {exif.device ? <div>Camera: {exif.device}</div> : null}
+                {exif.datetime ? <div>Photo Date: {exif.datetime}</div> : null}
+              </div>
+
+              {m.similar && m.similar.length > 0 && (
                 <div>
-                  <h3 className="mb-1 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">Related</h3>
-                  <ul className="flex flex-col gap-1">
-                    {(m.related || []).map((r) => (
-                      <li key={r.id}>
-                        <button
-                          type="button"
-                          className="cursor-pointer text-body-medium text-text-primary underline-offset-2 hover:underline"
-                          onClick={() => onOpen(r.id)}
-                        >
-                          {r.title || "untitled"}
-                        </button>
-                      </li>
+                  <Divider className="my-2" />
+                  <h3 className="mb-2 text-caption-1-semibold uppercase tracking-wide text-text-tertiary">
+                    Related Memories
+                  </h3>
+                  <div className="flex flex-col gap-1.5">
+                    {m.similar.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => onOpen(s.id)}
+                        className="flex items-center justify-between rounded-xl border border-border-button-default bg-background-secondary-default p-2 text-left text-body-small text-text-primary transition-colors hover:border-border-button-hover hover:bg-background-secondary-hover"
+                      >
+                        <span className="truncate">{s.title || "(untitled)"}</span>
+                        <span className="text-caption-regular text-text-tertiary">
+                          {Math.round(s.similarity * 100)}% similar
+                        </span>
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 </div>
               )}
-              <Divider />
-              <div className="flex justify-end gap-2">
-                <Button variant="danger" onClick={remove}>
-                  Delete
+
+              <div className="mt-2 flex justify-between border-t border-border-button-default pt-3">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={remove}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? "Deleting…" : "Delete Memory"}
                 </Button>
-                <Button variant="secondary" onClick={onClose}>
-                  Close
-                </Button>
+                {m.source?.startsWith("http") && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => window.open(m.source, "_blank", "noopener,noreferrer")}
+                  >
+                    Open Source
+                  </Button>
+                )}
               </div>
             </div>
           )}

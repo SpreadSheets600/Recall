@@ -16,6 +16,15 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          remixicon: ["@remixicon/react"],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

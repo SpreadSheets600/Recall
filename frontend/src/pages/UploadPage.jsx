@@ -1,15 +1,33 @@
 import { useState } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  FileText,
+  Save,
+  Terminal,
+  UploadCloud,
+} from "lucide-react";
 import { Button } from "@/components/base/buttons/button";
-import { FileUpload } from "@/components/base/file-upload/file-upload";
 import { Input } from "@/components/base/input/input";
 import { Textarea } from "@/components/base/textarea/textarea";
+import { FileUpload } from "@/components/base/file-upload/file-upload";
+import { PageHeader } from "../components/PageHeader.jsx";
 import { api } from "../api.js";
+
+const SINGLE_FILE_CURL = `curl -X POST http://127.0.0.1:8000/api/upload \\
+  -F "files=@report.pdf" \\
+  -F "source=manual"`;
+
+const NOTE_CURL = `curl -X POST http://127.0.0.1:8000/api/memories \\
+  -H "Content-Type: application/json" \\
+  -d '{"type":"text","title":"Demo","content":"Hello world"}'`;
 
 export function UploadPage({ onToast, onChanged }) {
   const [source, setSource] = useState("");
   const [queue, setQueue] = useState([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
   function push(entry) {
     setQueue((q) => [entry, ...q].slice(0, 20));
@@ -26,7 +44,7 @@ export function UploadPage({ onToast, onChanged }) {
       const res = (body.results || [])[0] || {};
       push({ name: file.name, status: res.status || "done", id: res.id });
       onToast(`${file.name}: ${res.status}`);
-      onChanged();
+      onChanged?.();
       return res;
     } catch (e) {
       push({ name: file.name, status: "failed", error: String(e).slice(0, 160) });
@@ -35,109 +53,188 @@ export function UploadPage({ onToast, onChanged }) {
     }
   }
 
-  async function saveNote() {
+  async function handleDrop(acceptedFiles) {
+    for (const f of acceptedFiles) {
+      await uploadFile(f);
+    }
+  }
+
+  async function saveNote(e) {
+    e?.preventDefault();
     if (!title.trim() && !content.trim()) {
       onToast("Write a title or some content first");
       return;
     }
+    setSavingNote(true);
     try {
       const m = await api("/api/memories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "text", title: title.trim(), content: content.trim() }),
+        body: JSON.stringify({
+          type: "text",
+          title: title.trim() || undefined,
+          content: content.trim(),
+        }),
       });
       onToast(`Saved note #${m.id}`);
       setTitle("");
       setContent("");
-      onChanged();
-    } catch (e) {
+      onChanged?.();
+    } catch {
       onToast("Save failed");
+    } finally {
+      setSavingNote(false);
     }
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-title-2-medium text-text-primary">Add memories</h1>
-        <p className="text-body-regular text-text-secondary">
-          Three ways in — pick whichever fits. Every image automatically gets an
-          AI description plus OCR text at ingest.
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      {/* Unified Bento Header */}
+      <PageHeader
+        title="Add memories"
+        subtitle="Three ways in — pick whichever fits. Every image automatically gets an AI description plus OCR text at ingest."
+      />
 
-      <div className="rounded-4lg border border-border-card-default bg-background-primary-default p-5 shadow-xs">
-        <h2 className="text-headline-medium text-text-primary">1 · Upload files</h2>
-        <p className="text-body-regular text-text-secondary">
-          Images, PDFs, text, markdown, HTML. Files land in data/uploads/ and are indexed.
-        </p>
-        <div className="mt-3">
-          <FileUpload
-            allowedExtensions={["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "md", "markdown", "html", "htm"]}
-            maxBytes={100 * 1024 * 1024}
-            onUploadComplete={(file) => uploadFile(file)}
-          />
-        </div>
-        <div className="mt-3 flex gap-2">
-          <div className="flex-1">
+      {/* 1 · Upload files */}
+      <div className="rounded-3xl border border-border-button-default bg-background-primary-default p-6 shadow-xs flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-500 font-semibold text-caption-medium">
+              1
+            </div>
+            <div>
+              <h2 className="text-title-3-bold text-text-primary">Upload files</h2>
+              <p className="text-caption-regular text-text-secondary">
+                Drag in images (PNG, JPG, WebP), PDFs, text notes, or Markdown files.
+              </p>
+            </div>
+          </div>
+          <div className="w-64">
             <Input
-              aria-label="Source URL for uploads"
-              placeholder="source (optional) · e.g. https://github.com/…"
+              aria-label="Source tag"
+              placeholder="Source tag (optional, e.g. receipt)"
               value={source}
               onChange={setSource}
             />
           </div>
         </div>
+
+        <FileUpload
+          onDropFiles={handleDrop}
+          title="Drop files here or click to browse"
+          hint="PNG, JPG, PDF, TXT, MD up to 50 MB each"
+        />
+
         {queue.length > 0 && (
-          <ul className="mt-3 flex flex-col gap-1">
-            {queue.map((e, i) => (
-              <li
-                key={`${e.name}-${i}`}
-                className="rounded-lg border border-border-card-default px-3 py-2 text-body-regular text-text-secondary"
+          <div className="mt-2 space-y-1.5 pt-3 border-t border-border-button-default/50">
+            <span className="text-caption-1-semibold uppercase tracking-wider text-text-tertiary">
+              Recent Ingestion Queue
+            </span>
+            {queue.map((q, i) => (
+              <div
+                key={i}
+                className="flex items-center justify-between rounded-xl border border-border-button-default bg-background-secondary-default/40 px-3.5 py-2 text-caption-regular"
               >
-                {e.name} — {e.status}
-                {e.id != null && ` (id ${e.id})`}
-                {e.error && `: ${e.error}`}
-              </li>
+                <span className="font-mono text-text-primary truncate max-w-md">
+                  {q.name}
+                </span>
+                <span className="flex items-center gap-1.5">
+                  {q.status === "failed" ? (
+                    <>
+                      <AlertCircle className="h-4 w-4 text-red-500" />
+                      <span className="text-red-500 font-medium">Failed</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span className="text-emerald-500 font-medium">
+                        {q.status} {q.id ? `#${q.id}` : ""}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-4lg border border-border-card-default bg-background-primary-default p-5 shadow-xs">
-          <h2 className="text-headline-medium text-text-primary">2 · Quick note</h2>
-          <p className="text-body-regular text-text-secondary">Save text directly — no file needed.</p>
-          <div className="mt-3 flex flex-col gap-2">
-            <Input aria-label="Note title" label="Title" placeholder="Title" value={title} onChange={setTitle} />
+      {/* Grid: 2 · Quick note & 3 · API / script */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+        {/* 2 · Quick note */}
+        <div className="rounded-3xl border border-border-button-default bg-background-primary-default p-6 shadow-xs flex flex-col gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-500 font-semibold text-caption-medium">
+              2
+            </div>
+            <div>
+              <h2 className="text-title-3-bold text-text-primary">Quick note</h2>
+              <p className="text-caption-regular text-text-secondary">
+                Type directly without creating a file.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={saveNote} className="flex flex-col gap-3">
+            <Input
+              aria-label="Note title"
+              placeholder="Title (optional)"
+              value={title}
+              onChange={setTitle}
+            />
             <Textarea
               aria-label="Note content"
-              label="Content"
-              placeholder="Paste or type content…"
+              placeholder="What do you want to remember? Markdown, meeting notes, code snippets, brainstorms…"
+              rows={6}
               value={content}
               onChange={setContent}
             />
+            <Button
+              variant="primary"
+              size="md"
+              type="submit"
+              leadingIcon={Save}
+              disabled={savingNote || (!title.trim() && !content.trim())}
+              className="justify-center"
+            >
+              {savingNote ? "Saving…" : "Save note"}
+            </Button>
+          </form>
+        </div>
+
+        {/* 3 · API / script */}
+        <div className="rounded-3xl border border-border-button-default bg-background-primary-default p-6 shadow-xs flex flex-col gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-500/10 text-accent-500 font-semibold text-caption-medium">
+              3
+            </div>
             <div>
-              <Button variant="primary" onClick={saveNote}>
-                Save note
-              </Button>
+              <h2 className="text-title-3-bold text-text-primary">API / script</h2>
+              <p className="text-caption-regular text-text-secondary">
+                Ingest from terminal or automated scripts.
+              </p>
             </div>
           </div>
-        </div>
-        <div className="rounded-4lg border border-border-card-default bg-background-primary-default p-5 shadow-xs">
-          <h2 className="text-headline-medium text-text-primary">3 · API / script</h2>
-          <p className="text-body-regular text-text-secondary">Same backend the UI uses. Good for bulk imports.</p>
-          <pre className="mt-3 overflow-auto rounded-lg bg-background-secondary-default p-3 text-caption-regular">
-{`# single file
-curl -F "files=@shot.png" \\
-     -F "source=https://github.com/…" \\
-     localhost:8000/api/upload
 
-# text note
-curl -X POST localhost:8000/api/memories \\
-  -H 'Content-Type: application/json' \\
-  -d '{"title":"FAISS notes",
-       "content":"vector index"}'`}
-          </pre>
+          <div className="flex flex-col gap-3 text-caption-regular text-text-secondary">
+            <div>
+              <div className="font-semibold text-text-primary mb-1">
+                Upload single file:
+              </div>
+              <pre className="rounded-xl border border-border-button-default bg-background-secondary-default/70 p-3 text-caption-2-medium font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
+                {SINGLE_FILE_CURL}
+              </pre>
+            </div>
+
+            <div>
+              <div className="font-semibold text-text-primary mb-1">
+                Insert text note:
+              </div>
+              <pre className="rounded-xl border border-border-button-default bg-background-secondary-default/70 p-3 text-caption-2-medium font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
+                {NOTE_CURL}
+              </pre>
+            </div>
+          </div>
         </div>
       </div>
     </div>
