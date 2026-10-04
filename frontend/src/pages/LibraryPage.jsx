@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Download,
   ExternalLink,
@@ -35,6 +35,7 @@ const TYPE_OPTIONS = [
   { id: "pdf", label: "PDFs" },
   { id: "text", label: "Text & Notes" },
   { id: "markdown", label: "Markdown" },
+  { id: "file", label: "Files" },
 ];
 
 export function LibraryPage({
@@ -49,6 +50,33 @@ export function LibraryPage({
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const filterTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(filterTimer.current), []);
+
+  function debouncedFilter(t, val) {
+    setQ(val);
+    clearTimeout(filterTimer.current);
+    filterTimer.current = setTimeout(() => load(t, val), 250);
+  }
+
+  async function handleExport() {
+    try {
+      const data = await exportMemories();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `recall-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onToast(`Exported ${data.count} memories`);
+    } catch {
+      onToast("Export failed");
+    }
+  }
 
   async function load(t, query) {
     setLoading(true);
@@ -162,7 +190,7 @@ export function LibraryPage({
               variant="secondary"
               size="sm"
               leadingIcon={Download}
-              onClick={() => exportMemories()}
+              onClick={handleExport}
             >
               Export JSON
             </Button>
@@ -186,10 +214,7 @@ export function LibraryPage({
             aria-label="Filter memories"
             placeholder="Filter memories by keyword or title…"
             value={q}
-            onChange={(val) => {
-              setQ(val);
-              load(type, val);
-            }}
+            onChange={(val) => debouncedFilter(type, val)}
             leadingIcon={Search}
           />
         </div>

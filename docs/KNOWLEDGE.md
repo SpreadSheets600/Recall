@@ -375,11 +375,12 @@ RRF docs; `blog.serghei.pl/posts/reciprocal-rank-fusion-explained`.
 ### Ranking
 
 ```text
-final = fused(RRF or weighted) + metadata_boost + recency_boost + exact_match_boost
+final = 0.7·(w_bm25·norm(bm25) + w_dense·norm(dense)) + 0.3·norm(RRF)
+      + relevance_bonuses (coverage/title/filename/tag/phrase)
+      + tiny tie-breakers (dwell ≤0.03, recency ≤0.02)
 ```
 
-Keep each term normalized and bounded (boosts ≤ ~0.2) so text/semantic signal
-dominates. Weights in config; API returns per-leg rank/score + match reasons
+Keep every query-independent term tiny so text/semantic signal dominates. Weights in config; API returns per-leg rank/score + match reasons
 (`keyword|semantic|source|date|type`). Tests will pin known examples
 ("GitHub DNS error" → seeded screenshot first). Status: `Planned`.
 
@@ -658,6 +659,46 @@ supported baseline and all tests run CPU-only.
     (bundle files are content-hashed). Lesson: keep a headless-browser
     smoke script (`/tmp/opencode/flow*.js` pattern) for UI claims; never
     diagnose layout from a screenshot alone.
+11. **Websites systematically outranked files despite weaker matches.**
+    Causes (all in `backend/app/search.py`): (a) unconditional
+    `website_type` boosts (+0.08 docs/code/academic, +0.06 article/blog)
+    applied to every website regardless of the query, while files
+    (`website_type=NULL`) got nothing; (b) dwell boost up to +0.18 —
+    websites-only signal — while RRF deltas between adjacent ranks are
+    ~0.002 (k=60), so boosts decided ranking, not relevance; (c) the
+    configured `W_DENSE`/`W_BM25` knobs were dead code, fusion was
+    rank-only RRF with score magnitudes discarded. Fix: score fusion
+    `0.7·(w_bm25·n_bm25 + w_dense·n_dense) + 0.3·n_rrf` (min-max normalized
+    per query, knobs live); large bonuses are query-dependent only (term
+    coverage ×0.25, title ×0.20, filename/tag ×0.08, phrase ×0.12/0.05);
+    website_type boosts only on explicit filter match; dwell capped at
+    +0.03 and recency at +0.02 as pure tie-breakers. Verified: file matching
+    3/3 terms now beats a docs website matching 1/3 (was reversed), all
+    27 pytest tests green. Status: Fixed.
+12. **Full endpoint audit (Oct 2026): 8 contract failures found, all fixed.**
+    Backend (`backend/app/main.py` unless noted): (a) `GET /api/stats`
+    lacked `recent` (dashboard "Recent Memories" always empty) and `settings`
+    (UI `embed_dim` always fell back to 768) — both added; (b) settings
+    `False` didn't survive restart — `bool("False") is True` in
+    `config.apply_settings`, now parses properly (`backend/app/config.py`);
+    (c) `PATCH /api/memories/{id}` left the embedding stale (only FTS
+    trigger updated) — now rebuilds searchable text + re-embeds;
+    (d) extension re-capture of a URL stacked duplicate rows — now upserts
+    by `source` URL; (e) `POST /api/benchmark` lacked `memories_count`
+    the Models page reads (`tools_service.py`); (f) `GET /api/graph`
+    ignored the `min_terms`/`max_nodes` params the UI sends — now honored;
+    (g) negative `limit`/`offset` on list/search misbehaved — clamped;
+    (h) upload had no size cap despite the UI's "50 MB" claim — now
+    enforced via `RECALL_MAX_UPLOAD_BYTES`; oversize files are removed
+    with a clear error. Frontend: Library "Export JSON" button fetched
+    but never downloaded (now Blob download); Library filter had no
+    debounce (now 250 ms like Search); Models pipeline rows read
+    `v.model`/`v.details` but the API sends `name`/`note` (fixed, plus
+    `ready`-derived status); `fmtKB` had no MB/GB; "Files" type was
+    unfilterable (added to both filter lists). OCR engine is now cached
+    across ingests instead of re-initialized per image. Verified with a
+    50-check endpoint audit (all green), 28 pytest tests, and a clean
+    Vite build. Status: Fixed, Verified.
 
 ## 19. Solutions
 

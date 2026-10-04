@@ -149,4 +149,5 @@ def run_benchmark(db_path: str):
         results["vector_index_type"] = f"error: {e}"
 
     results["status"] = "healthy"
+    results["memories_count"] = count
     return results

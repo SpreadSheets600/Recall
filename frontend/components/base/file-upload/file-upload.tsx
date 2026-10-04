@@ -31,6 +31,8 @@ type StaggerState = "shown" | "hiding" | "hidden";
 export interface FileUploadProps {
   /** Called after the progress and success states finish. */
   onUploadComplete?: (file: File) => void;
+  /** Called immediately after a file passes validation, as the upload starts. */
+  onFileAccepted?: (file: File) => void;
   /** Accepted filename extensions without dots. */
   allowedExtensions?: readonly string[];
   /** Maximum accepted file size in bytes. */
@@ -118,6 +120,7 @@ function ringPath(width: number, height: number, inset: number, radius: number) 
 
 export function FileUpload({
   onUploadComplete,
+  onFileAccepted,
   allowedExtensions = DEFAULT_EXTENSIONS,
   maxBytes = DEFAULT_MAX_BYTES,
   renderFileIcon,
@@ -167,6 +170,7 @@ export function FileUpload({
     setFile(nextFile);
     setProgress(0);
     setPhase("uploading");
+    onFileAccepted?.(nextFile);
 
     let value = 0;
     const tick = () => {

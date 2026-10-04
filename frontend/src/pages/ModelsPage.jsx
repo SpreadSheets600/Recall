@@ -17,6 +17,7 @@ import { Badge } from "@/components/base/badges/badge";
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
 import { PageHeader } from "../components/PageHeader.jsx";
+import { cx } from "@/utils/cx";
 import {
   api,
   fmtKB,
@@ -375,16 +376,23 @@ export function ModelsPage({ onToast }) {
                     {LABELS[k] || k}
                   </span>
                   <span className="font-mono text-caption-regular text-text-secondary">
-                    {v.model || v.engine || "built-in"}
+                    {v.name || v.model || v.engine || "built-in"}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-caption-regular text-text-tertiary">
-                    {v.details || v.device || ""}
+                    {v.note || v.details || v.device || ""}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-caption-2-medium text-emerald-600 font-semibold">
+                  <span
+                    className={cx(
+                      "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-caption-2-medium font-semibold",
+                      v.ready === false
+                        ? "bg-red-500/10 text-red-500"
+                        : "bg-emerald-500/10 text-emerald-600"
+                    )}
+                  >
                     <CheckCircle2 className="h-3 w-3" />
-                    {v.status || "ready"}
+                    {v.ready === false ? "fallback" : v.status || "ready"}
                   </span>
                 </div>
               </div>

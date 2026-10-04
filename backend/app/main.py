@@ -35,6 +35,9 @@ app.add_middleware(
 
 _started = False
 
+# Matches the "up to 50 MB each" claim in the upload UI.
+MAX_UPLOAD_BYTES = int(os.environ.get("RECALL_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
 
 def ensure_started():
     global _started
@@ -61,6 +64,8 @@ def health():
 @app.get("/api/memories")
 def list_memories(type: str = "", q: str = "", limit: int = 50, offset: int = 0):
     ensure_started()
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     conn = db.connect(config.DB_PATH)
     try:
         sql = "SELECT * FROM memories"
@@ -75,7 +80,7 @@ def list_memories(type: str = "", q: str = "", limit: int = 50, offset: int = 0)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        args += [min(limit, 200), offset]
+        args += [limit, offset]
         rows = conn.execute(sql, args).fetchall()
         return [db.public_memory(db.row_to_memory(r)) for r in rows]
     finally:
@@ -156,6 +161,30 @@ def patch_memory(mid: int, body: MemoryPatchIn):
             conn.execute(f"UPDATE memories SET {', '.join(updates)} WHERE id=?", args)
             conn.commit()
             updated_row = conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+            mem = db.row_to_memory(updated_row)
+            # Content/title changed -> the stored vector is stale. Rebuild the
+            # searchable text and re-embed so both FTS (via trigger) and the
+            # dense index reflect the edit.
+            try:
+                from . import textutil as tu
+
+                searchable = tu.build_searchable_text(
+                    mem.get("title") or "", mem.get("content") or "",
+                    mem.get("description") or "", mem.get("ocr_text") or "",
+                    mem.get("tags") or "",
+                    os.path.basename(mem.get("path") or ""),
+                    mem.get("source") or "",
+                )
+                vec = embeddings.embed_texts(
+                    [searchable], dim=config.EMBED_DIM,
+                    titles=[mem.get("title") or ""])[0]
+                conn.execute(
+                    "UPDATE memories SET embedding=?, modified_at=? WHERE id=?",
+                    (embeddings.to_blob(vec), db.now_ts(), mid))
+                conn.commit()
+                updated_row = conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
+            except Exception:
+                pass
             try:
                 ing.rebuild_index(config.DB_PATH)
             except Exception:
@@ -223,7 +252,7 @@ class SearchIn(BaseModel):
 def do_search(body: SearchIn):
     ensure_started()
     results = searchsvc.search_memories(
-        config.DB_PATH, body.query, limit=min(body.limit or 20, 100),
+        config.DB_PATH, body.query, limit=max(1, min(body.limit or 20, 100)),
         type_filter=body.type or None,
         domain_filter=body.source or None,
         website_type_filter=body.website_type or None,
@@ -279,11 +308,25 @@ def stats():
             size = os.path.getsize(config.DB_PATH)
         except OSError:
             pass
+        recent_rows = conn.execute(
+            "SELECT * FROM memories ORDER BY created_at DESC, id DESC LIMIT 6"
+        ).fetchall()
+        recent = []
+        for r in recent_rows:
+            m = db.public_memory(db.row_to_memory(r))
+            # Card previews only render a snippet; keep the stats payload light.
+            # Full text loads on demand via GET /api/memories/{id}.
+            for k in ("content", "description", "ocr_text"):
+                if m.get(k) and len(m[k]) > 2000:
+                    m[k] = m[k][:2000]
+            recent.append(m)
         return {
             "total": total,
             "by_type": by_type,
             "vectors": int(nvec),
             "db_bytes": size,
+            "recent": recent,
+            "settings": config.as_dict(),
             "uploads": len([f for f in os.listdir(config.UPLOAD_DIR)])
             if os.path.isdir(config.UPLOAD_DIR) else 0,
             "models": {"embed": config.EMBED_MODEL, "caption": config.CAPTION_MODEL},
@@ -401,10 +444,60 @@ class ExtensionIngestIn(BaseModel):
 @app.post("/api/extension/ingest")
 def extension_ingest(body: ExtensionIngestIn):
     ensure_started()
+    body.url = (body.url or "").strip()
+    if not body.url:
+        raise HTTPException(status_code=400, detail="url required")
+    dwell = max(0, int(body.dwell_time or 0))
+    new_content = body.content or body.markdown or body.description or ""
+    # Re-captures of the same URL update the existing memory instead of
+    # stacking duplicates (content hash alone would treat every edit as new).
+    conn = db.connect(config.DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT * FROM memories WHERE source=? ORDER BY created_at DESC LIMIT 1",
+            (body.url,)).fetchone()
+        existing = db.row_to_memory(row) if row else None
+    finally:
+        conn.close()
+    if existing is not None:
+        from . import textutil as tu
+
+        title = body.title or existing.get("title") or ""
+        content = new_content or existing.get("content") or ""
+        description = body.description or existing.get("description") or ""
+        tags = body.tags or existing.get("tags") or ""
+        domain = body.domain or existing.get("domain") or ""
+        wtype = body.website_type or existing.get("website_type")
+        dwell = max(dwell, int(existing.get("dwell_time") or 0))
+        searchable = tu.build_searchable_text(
+            title, content, description, existing.get("ocr_text") or "",
+            tags, "", body.url)
+        try:
+            vec = embeddings.embed_texts(
+                [searchable], dim=config.EMBED_DIM, titles=[title])[0]
+            blob = embeddings.to_blob(vec)
+        except Exception:
+            blob = existing.get("embedding")
+        conn = db.connect(config.DB_PATH)
+        try:
+            conn.execute(
+                """UPDATE memories SET title=?, content=?, description=?, tags=?,
+                   domain=?, website_type=?, dwell_time=?, embedding=?,
+                   modified_at=? WHERE id=?""",
+                (title, searchable, description, tags, domain, wtype, dwell,
+                 blob, db.now_ts(), existing["id"]))
+            conn.commit()
+        finally:
+            conn.close()
+        try:
+            ing.rebuild_index(config.DB_PATH)
+        except Exception:
+            pass
+        return {"status": "updated", "created": False, "id": existing["id"]}
     extra = {
         "domain": body.domain,
         "website_type": body.website_type,
-        "dwell_time": body.dwell_time,
+        "dwell_time": dwell,
         "markdown": body.markdown,
     }
     mem, created = ing.create_memory_record(
@@ -413,7 +506,7 @@ def extension_ingest(body: ExtensionIngestIn):
         title=body.title,
         path="",
         source=body.url,
-        content=body.content or body.markdown or body.description,
+        content=new_content,
         description=body.description,
         ocr_text="",
         tags=body.tags,
@@ -430,23 +523,27 @@ class DwellHeartbeatIn(BaseModel):
 @app.post("/api/extension/dwell")
 def extension_dwell(body: DwellHeartbeatIn):
     ensure_started()
+    dwell = max(0, int(body.dwell_time or 0))
     conn = db.connect(config.DB_PATH)
     try:
         row = conn.execute("SELECT id FROM memories WHERE source=? ORDER BY created_at DESC LIMIT 1",
                            (body.url,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Memory not found for url")
-        conn.execute("UPDATE memories SET dwell_time=? WHERE id=?", (body.dwell_time, row["id"]))
+        conn.execute("UPDATE memories SET dwell_time=? WHERE id=?", (dwell, row["id"]))
         conn.commit()
-        return {"id": row["id"], "dwell_time": body.dwell_time}
+        return {"id": row["id"], "dwell_time": dwell}
     finally:
         conn.close()
 
 
 @app.get("/api/graph")
-def knowledge_graph():
+def knowledge_graph(min_terms: int = 1, max_nodes: int = 150):
     ensure_started()
-    return graph_service.build_knowledge_graph(config.DB_PATH)
+    return graph_service.build_knowledge_graph(
+        config.DB_PATH,
+        min_term_count=max(1, min_terms),
+        max_nodes=min(max(10, max_nodes), 500))
 
 
 @app.post("/api/upload")
@@ -475,6 +572,17 @@ def upload_files(files: list[UploadFile] = File(...), source: str = Form("")):
                             "error": str(e)})
             continue
         try:
+            if os.path.getsize(dest) > MAX_UPLOAD_BYTES:
+                os.remove(dest)
+                cap = ("%d MB" % (MAX_UPLOAD_BYTES // (1024 * 1024))
+                       if MAX_UPLOAD_BYTES >= 1024 * 1024
+                       else "%d KB" % (MAX_UPLOAD_BYTES // 1024))
+                results.append({"filename": f.filename, "status": "failed",
+                                "error": "file exceeds %s limit" % cap})
+                continue
+        except OSError:
+            pass
+        try:
             r = ing.ingest_file(config.DB_PATH, dest, source or "", name)
             r["filename"] = f.filename
             r["stored_as"] = os.path.basename(dest)
@@ -502,7 +610,7 @@ def memory_file(mid: int):
     if row is None or not row["path"]:
         raise HTTPException(status_code=404, detail="no file for this memory")
     path = row["path"]
-    if not os.path.exists(path):
+    if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="file not found on disk")
     return FileResponse(path)
 

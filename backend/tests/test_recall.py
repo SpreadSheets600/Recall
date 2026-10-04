@@ -432,6 +432,27 @@ def test_extension_ingest_dwell_and_search_filter(tmpdb):
         config.DB_PATH = old_db
 
 
+def test_stats_includes_recent(tmpdb):
+    from fastapi.testclient import TestClient
+
+    old_db = config.DB_PATH
+    config.DB_PATH = tmpdb
+    try:
+        from backend.app.main import app
+
+        c = TestClient(app)
+        add(tmpdb, mem_type="text", title="first", content="first note")
+        add(tmpdb, mem_type="text", title="second", content="second note")
+        r = c.get("/api/stats")
+        assert r.status_code == 200
+        body = r.json()
+        assert "recent" in body
+        assert [m["title"] for m in body["recent"]] == ["second", "first"]
+        assert body["total"] == 2
+    finally:
+        config.DB_PATH = old_db
+
+
 def test_knowledge_graph_endpoint(tmpdb):
     from fastapi.testclient import TestClient
 

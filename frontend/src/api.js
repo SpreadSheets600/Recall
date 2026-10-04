@@ -7,8 +7,13 @@ export async function api(path, opts) {
 
 export const esc = (s) => String(s ?? "");
 export const fmtDate = (ts) => (ts ? new Date(ts * 1000).toLocaleString() : "—");
-export const fmtKB = (b) =>
-  b == null ? "—" : b < 1024 ? `${b} B` : `${(b / 1024).toFixed(1)} KB`;
+export const fmtKB = (b) => {
+  if (b == null) return "—";
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+};
 
 export function fmtRelativeDate(ts) {
   if (!ts) return "—";

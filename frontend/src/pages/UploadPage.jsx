@@ -22,6 +22,13 @@ const NOTE_CURL = `curl -X POST http://127.0.0.1:8000/api/memories \\
   -H "Content-Type: application/json" \\
   -d '{"type":"text","title":"Demo","content":"Hello world"}'`;
 
+// Everything the backend ingest pipeline handles (see textutil detect_type).
+const ACCEPTED_EXTENSIONS = [
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif",
+  "pdf", "txt", "md", "markdown", "html", "htm",
+];
+const MAX_BYTES = 50 * 1024 * 1024;
+
 export function UploadPage({ onToast, onChanged }) {
   const [source, setSource] = useState("");
   const [queue, setQueue] = useState([]);
@@ -29,11 +36,11 @@ export function UploadPage({ onToast, onChanged }) {
   const [content, setContent] = useState("");
   const [savingNote, setSavingNote] = useState(false);
 
-  function push(entry) {
-    setQueue((q) => [entry, ...q].slice(0, 20));
-  }
-
   async function uploadFile(file) {
+    const key = `${file.name}-${Date.now()}`;
+    setQueue((q) =>
+      [{ key, name: file.name, status: "uploading" }, ...q].slice(0, 20)
+    );
     const fd = new FormData();
     fd.append("files", file, file.name);
     fd.append("source", source.trim());
@@ -42,20 +49,24 @@ export function UploadPage({ onToast, onChanged }) {
       if (!r.ok) throw new Error(await r.text());
       const body = await r.json();
       const res = (body.results || [])[0] || {};
-      push({ name: file.name, status: res.status || "done", id: res.id });
+      setQueue((q) =>
+        q.map((e) =>
+          e.key === key ? { ...e, status: res.status || "done", id: res.id } : e
+        )
+      );
       onToast(`${file.name}: ${res.status}`);
       onChanged?.();
       return res;
     } catch (e) {
-      push({ name: file.name, status: "failed", error: String(e).slice(0, 160) });
+      setQueue((q) =>
+        q.map((e) =>
+          e.key === key
+            ? { ...e, status: "failed", error: String(e).slice(0, 160) }
+            : e
+        )
+      );
       onToast(`${file.name} failed`);
       return null;
-    }
-  }
-
-  async function handleDrop(acceptedFiles) {
-    for (const f of acceptedFiles) {
-      await uploadFile(f);
     }
   }
 
@@ -120,9 +131,9 @@ export function UploadPage({ onToast, onChanged }) {
         </div>
 
         <FileUpload
-          onDropFiles={handleDrop}
-          title="Drop files here or click to browse"
-          hint="PNG, JPG, PDF, TXT, MD up to 50 MB each"
+          onFileAccepted={uploadFile}
+          allowedExtensions={ACCEPTED_EXTENSIONS}
+          maxBytes={MAX_BYTES}
         />
 
         {queue.length > 0 && (
@@ -130,9 +141,9 @@ export function UploadPage({ onToast, onChanged }) {
             <span className="text-caption-1-semibold uppercase tracking-wider text-text-tertiary">
               Recent Ingestion Queue
             </span>
-            {queue.map((q, i) => (
+            {queue.map((q) => (
               <div
-                key={i}
+                key={q.key || q.name}
                 className="flex items-center justify-between rounded-xl border border-border-button-default bg-background-secondary-default/40 px-3.5 py-2 text-caption-regular"
               >
                 <span className="font-mono text-text-primary truncate max-w-md">
@@ -143,6 +154,11 @@ export function UploadPage({ onToast, onChanged }) {
                     <>
                       <AlertCircle className="h-4 w-4 text-red-500" />
                       <span className="text-red-500 font-medium">Failed</span>
+                    </>
+                  ) : q.status === "uploading" ? (
+                    <>
+                      <UploadCloud className="h-4 w-4 text-accent-500 animate-pulse" />
+                      <span className="text-accent-500 font-medium">Uploading…</span>
                     </>
                   ) : (
                     <>

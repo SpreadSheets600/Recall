@@ -1,9 +1,14 @@
-def extract_ocr(path: str):
-    try:
-        from rapidocr_onnxruntime import RapidOCR
+_engine = None
 
-        engine = RapidOCR()
-        result, _ = engine(path)
+
+def extract_ocr(path: str):
+    global _engine
+    try:
+        if _engine is None:
+            from rapidocr_onnxruntime import RapidOCR
+
+            _engine = RapidOCR()
+        result, _ = _engine(path)
         if not result:
             return ""
         texts = []

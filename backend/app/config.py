@@ -51,6 +51,19 @@ def load_from_db(db_path):
     return as_dict()
 
 
+def _as_bool(v, default=True):
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    if s in ("true", "1", "yes", "y", "on"):
+        return True
+    if s in ("false", "0", "no", "n", "off", ""):
+        return False
+    return default
+
+
 def apply_settings(settings_dict):
     global W_DENSE, W_BM25, RRF_K, RECENCY_HALF_LIFE_DAYS, CANDIDATE_K
     global OCR_ENABLED, CAPTION_ENABLED, AUTOTAG_ENABLED
@@ -81,11 +94,11 @@ def apply_settings(settings_dict):
         except (ValueError, TypeError):
             pass
     if "ocr_enabled" in settings_dict:
-        OCR_ENABLED = bool(settings_dict["ocr_enabled"])
+        OCR_ENABLED = _as_bool(settings_dict["ocr_enabled"], True)
     if "caption_enabled" in settings_dict:
-        CAPTION_ENABLED = bool(settings_dict["caption_enabled"])
+        CAPTION_ENABLED = _as_bool(settings_dict["caption_enabled"], True)
     if "autotag_enabled" in settings_dict:
-        AUTOTAG_ENABLED = bool(settings_dict["autotag_enabled"])
+        AUTOTAG_ENABLED = _as_bool(settings_dict["autotag_enabled"], True)
 
 
 def save_to_db(db_path, new_settings):

@@ -14,6 +14,7 @@ const TYPE_OPTIONS = [
   { id: "pdf", label: "PDFs" },
   { id: "text", label: "Notes & Text" },
   { id: "markdown", label: "Markdown" },
+  { id: "file", label: "Files" },
 ];
 
 const WEBSITE_TYPE_OPTIONS = [

@@ -1,13 +1,59 @@
-import math
-import time
+"""Hybrid search: BM25 (lexical) + dense vectors fused on scores, not ranks alone.
 
-import numpy as np
+Pipeline per query:
+  1. candidate retrieval -- FTS5 BM25 top-N  ||  FAISS/numpy cosine top-N
+     (+ hard metadata filters applied to both legs)
+  2. score fusion -- per-leg min-max normalized scores weighted by the
+     configured ``W_BM25`` / ``W_DENSE`` knobs, mixed with a normalized
+     RRF term for rank robustness::
+         relevance = 0.7 * (w_bm25 * n_bm25 + w_dense * n_dense)
+                   + 0.3 * n_rrf
+  3. relevance bonuses -- every large bonus is *query-dependent*
+     (term coverage, title/filename/tag hits, phrase match). Query-independent
+     signals (dwell time, recency) are capped tiny tie-breakers so they can
+     never outvote relevance.
+
+This fixes the old ranking where unconditional ``website_type`` boosts
+(+0.08 docs/code, +0.06 article/blog, ...) plus a dwell boost up to +0.18
+dwarfed the RRF deltas (~0.002 between adjacent ranks), so long-dwell
+websites systematically outranked files with far better lexical/semantic
+matches.
+"""
+
+import math
+import os
+import time
 
 from . import config, db
 from . import embeddings, textutil, vectors
 
+# Fusion mix: how much of the fused relevance comes from calibrated score
+# weights vs. rank robustness. Scores carry magnitude info RRF throws away;
+# RRF protects against badly calibrated legs (e.g. hash-fallback vectors).
+_SCORE_MIX = 0.7
+_RRF_MIX = 0.3
+
+# Bonus caps. Query-dependent (relevance) bonuses may be large; anything
+# query-independent stays <= ~0.05 combined so it only breaks near-ties.
+_COVERAGE_W = 0.25   # fraction of query terms matched anywhere
+_TITLE_W = 0.20      # fraction of query terms matched in title
+_FILETAG_W = 0.08    # any query term in filename or tags
+_PHRASE_TITLE_W = 0.12
+_PHRASE_CONTENT_W = 0.05
+_TYPE_HINT_W = 0.05
+_TYPE_EXPLICIT_W = 0.03
+_DOMAIN_W = 0.08
+_WEBSITE_TYPE_FILTER_W = 0.10
+_DWELL_MAX = 0.03
+_RECENCY_MAX = 0.02
+
 
 def normalize_scores(scores: list):
+    """Min-max normalize ``[(id, raw)]`` to ``[(id, 0..1)]``.
+
+    A leg where every candidate scores identically carries no information;
+    map it to a constant so it cannot reorder results on its own.
+    """
     if not scores:
         return []
     lo = min(s for _, s in scores)
@@ -23,6 +69,29 @@ def rrf_fuse(rank_lists: list, k: int = 60):
         for rank, mid in enumerate(ranks, start=1):
             fused[mid] = fused.get(mid, 0.0) + 1.0 / (k + rank)
     return sorted(fused.items(), key=lambda x: -x[1])
+
+
+def _norm_map(pairs: list):
+    return dict(normalize_scores(pairs))
+
+
+def _fusion_weights():
+    try:
+        wb = float(config.W_BM25)
+    except (TypeError, ValueError):
+        wb = 0.4
+    try:
+        wd = float(config.W_DENSE)
+    except (TypeError, ValueError):
+        wd = 0.6
+    tot = wb + wd
+    if tot <= 0:
+        return 0.5, 0.5
+    return wb / tot, wd / tot
+
+
+def _content_sample(mem, limit=8000):
+    return (mem.get("content") or "")[:limit]
 
 
 def search_memories(
@@ -70,7 +139,11 @@ def search_memories(
             args += [parsed["date_to"], parsed["date_to"]]
         where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
-        bm25_ranked = []
+        cand_k = max(config.CANDIDATE_K, min(max(limit, 1) * 3, 200))
+
+        # ---- leg 1: lexical (BM25). OR recall; precision is restored by
+        # the coverage/title bonuses at rerank time so AND-like matches win.
+        bm25_ranked = []  # [(id, better-is-higher)]
         if cleaned.strip():
             fts_q = textutil.escape_fts(cleaned)
             try:
@@ -87,19 +160,18 @@ def search_memories(
                         )
                         fargs += args
                     sql += " ORDER BY rank LIMIT ?"
-                    fargs.append(config.CANDIDATE_K)
+                    fargs.append(cand_k)
                     rows = conn.execute(sql, fargs).fetchall()
                     bm25_ranked = [(r["id"], -float(r["rank"])) for r in rows]
             except Exception:
                 bm25_ranked = []
 
+        # ---- leg 2: dense (cosine via normalized FAISS/numpy index)
         qvec = embeddings.embed_query(
             cleaned if cleaned.strip() else (query or ""),
             dim=config.EMBED_DIM,
         )
-        dense_all = vectors.get_index(config.EMBED_DIM).search(
-            qvec, k=config.CANDIDATE_K
-        )
+        dense_all = vectors.get_index(config.EMBED_DIM).search(qvec, k=cand_k)
         if where:
             allowed = {
                 r["id"]
@@ -122,73 +194,107 @@ def search_memories(
                 for r in rows
             ]
 
-        fused = rrf_fuse([bm25_ids, dense_ids], k=config.RRF_K)
-        bm25_pos = {mid: r for r, mid in enumerate(bm25_ids, start=1)}
-        dense_pos = {mid: r for r, mid in enumerate(dense_ids, start=1)}
+        # ---- fusion on calibrated scores (not ranks alone)
+        n_bm25 = _norm_map(bm25_ranked)
+        n_dense = _norm_map(dense_all)
+        rrf = rrf_fuse([bm25_ids, dense_ids], k=config.RRF_K)
+        n_rrf = _norm_map(rrf)
+        wb, wd = _fusion_weights()
+
+        bm25_set = set(bm25_ids)
+        dense_set = set(dense_ids)
+
+        q_terms = textutil.content_tokens(cleaned or "")
+        q_set = set(q_terms)
+        n_q = len(q_set)
+        ql = (cleaned or "").strip().lower()
+
+        wtype_filter_lc = (website_type_filter or "").lower()
+        domain_q = (parsed.get("domain") or "").lower()
 
         now = int(time.time())
         scored = []
-        for mid, fscore in fused[: max(limit * 3, limit)]:
+        for mid in list(dict.fromkeys(bm25_ids + dense_ids))[: max(limit * 3, limit)]:
             row = conn.execute("SELECT * FROM memories WHERE id=?", (mid,)).fetchone()
             if row is None:
                 continue
             mem = db.row_to_memory(row)
             reasons = []
+
+            base = wb * n_bm25.get(mid, 0.0) + wd * n_dense.get(mid, 0.0)
+            relevance = _SCORE_MIX * base + _RRF_MIX * n_rrf.get(mid, 0.0)
             boost = 0.0
-            if mid in bm25_pos:
+
+            if mid in bm25_set:
                 reasons.append("keyword")
-            if mid in dense_pos:
+            if mid in dense_set:
                 reasons.append("semantic")
+
+            # ---- query-dependent relevance bonuses (the ranking workhorses)
+            if n_q:
+                doc_toks = set(
+                    textutil.tokenize(_content_sample(mem))
+                )
+                hits = len(q_set & doc_toks)
+                if hits:
+                    boost += _COVERAGE_W * (hits / n_q)
+                    if hits == n_q and n_q >= 2:
+                        reasons.append("all-terms")
+
+                title_toks = set(textutil.tokenize(mem.get("title") or ""))
+                title_hits = len(q_set & title_toks)
+                if title_hits:
+                    boost += _TITLE_W * (title_hits / n_q)
+                    reasons.append("title")
+
+                fname = os.path.basename(mem.get("path") or "").lower()
+                tag_toks = set(textutil.tokenize(mem.get("tags") or ""))
+                if q_set & tag_toks or (fname and any(t in fname for t in q_set)):
+                    boost += _FILETAG_W
+                    reasons.append("filename" if fname and any(t in fname for t in q_set) else "tag")
+
+                if ql:
+                    title_lc = (mem.get("title") or "").lower()
+                    if ql in title_lc:
+                        boost += _PHRASE_TITLE_W
+                        reasons.append("exact")
+                    elif ql in _content_sample(mem, 20000).lower():
+                        boost += _PHRASE_CONTENT_W
+                        reasons.append("exact")
+
+            # ---- explicit/parsed filters: reward what was asked for, nothing else
             if explicit_type and mem.get("type") == explicit_type:
                 reasons.append("type")
-                boost += 0.05
+                boost += _TYPE_EXPLICIT_W
             elif type_hint and mem.get("type") == type_hint:
                 reasons.append("type")
-                boost += 0.10
+                boost += _TYPE_HINT_W
 
-            # Website type ranking boost
             wtype = (mem.get("website_type") or "").lower()
-            if website_type_filter and wtype == website_type_filter.lower():
+            if wtype_filter_lc and wtype == wtype_filter_lc:
                 reasons.append("website-type")
-                boost += 0.10
-            elif wtype in ("docs", "code"):
-                boost += 0.08
-                reasons.append("docs")
-            elif wtype in ("academic", "research"):
-                boost += 0.08
-                reasons.append("academic")
-            elif wtype in ("article", "blog"):
-                boost += 0.06
-                reasons.append("article")
-            elif wtype in ("media", "video"):
-                boost += 0.03
+                boost += _WEBSITE_TYPE_FILTER_W
 
-            # Dwell time engagement boost: more time spent = higher value/importance
+            if domain_q and domain_q in (mem.get("domain") or ""):
+                reasons.append("source")
+                boost += _DOMAIN_W
+
+            # ---- query-independent tie-breakers, deliberately tiny
             dwell = int(mem.get("dwell_time") or 0)
             if dwell > 0:
-                dwell_boost = min(0.18, math.log1p(dwell / 20.0) * 0.045)
-                boost += dwell_boost
+                boost += min(_DWELL_MAX, math.log1p(dwell / 30.0) * 0.008)
                 if dwell >= 60:
                     reasons.append(f"{dwell // 60}m-read")
                 elif dwell >= 15:
                     reasons.append(f"{dwell}s-read")
 
-            if parsed.get("domain") and parsed["domain"] in (mem.get("domain") or ""):
-                reasons.append("source")
-                boost += 0.10
-
             age_days = max(0, (now - (mem.get("created_at") or now)) / 86400.0)
             recency = math.exp(-age_days * math.log(2) / max(1, config.RECENCY_HALF_LIFE_DAYS))
-            boost += 0.05 * recency
-
-            ql = (cleaned or "").lower()
-            if ql and ql in (mem.get("content") or "").lower()[:20000]:
-                boost += 0.10
-                reasons.append("exact")
+            boost += _RECENCY_MAX * recency
 
             if not reasons:
                 reasons = ["related"]
-            scored.append((mem, fscore + boost, reasons))
+            scored.append((mem, relevance + boost, reasons))
 
         scored.sort(key=lambda x: -x[1])
         return [attach_match(m, s, r) for m, s, r in scored[:limit]]
