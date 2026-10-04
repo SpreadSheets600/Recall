@@ -632,10 +632,10 @@ supported baseline and all tests run CPU-only.
 7. **BoardUI `data-table` is a hardcoded customers demo, not a generic table.**
    Library page uses the base `table` primitives instead. Only free BoardUI
    items are vendored; every Pro item needs a paid license key.
-8. **React UI is build-verified + API-verified, not browser-tested** (no
-   browser in this environment). `vite build` passes; all API calls the UI
-   makes were exercised with curl. Interaction bugs (e.g. Select popover,
-   dialog focus) should be clicked through on first real run.
+8. **React UI is browser-verified via headless Chromium** (Playwright smoke:
+   sidebar, search, Select popover, Upload/Library/Models tabs, light + dark
+   mode, zero console errors). One flaky React #520 recovery seen once,
+   unreproduced since. Rerun the smoke on real UI changes.
 9. **BoardUI `DashboardSidebar` rendered blank in production** (user
    screenshot: empty black gutter where the nav should be, header cramped).
    Root cause never confirmed — no browser in this environment to inspect;
@@ -647,6 +647,17 @@ supported baseline and all tests run CPU-only.
    `leadingIcon/trailingIcon` take **components**, not elements. Bundle shrank
    921KB → 619KB as a side effect. Status: Fixed, build-verified; needs one
    visual click-through.
+10. **"Entirely broken, no sidebar" report was a stale `dist/` build.**
+    Verified with headless Chromium (Playwright) against the real backend:
+    current code renders sidebar, search, results, dialogs, Upload/Library/
+    Models tabs with zero console errors in light and dark mode. `dist/` is
+    gitignored, so `git pull` alone never updates the UI — the reporter was
+    still serving the pre-fix bundle. Fix on the process side:
+    `script.sh` rebuilds the frontend every run, `/` now sends
+    `Cache-Control: no-store` so browsers can't pin an old `index.html`
+    (bundle files are content-hashed). Lesson: keep a headless-browser
+    smoke script (`/tmp/opencode/flow*.js` pattern) for UI claims; never
+    diagnose layout from a screenshot alone.
 
 ## 19. Solutions
 

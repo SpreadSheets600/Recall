@@ -299,7 +299,9 @@ def root():
     for candidate in (os.path.join(DIST, "index.html"),
                       os.path.join(BASE, "index.html")):
         if os.path.exists(candidate):
-            return FileResponse(candidate)
+            # Never cache the shell: bundle filenames are content-hashed,
+            # so a stale index.html is the only way the UI goes stale.
+            return FileResponse(candidate, headers={"Cache-Control": "no-store"})
     return {"name": "Recall", "docs": "/docs"}
 
 
